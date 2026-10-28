@@ -240,10 +240,13 @@ fn shell(cmd: &str, secs: u64) -> String {
         if Instant::now() > deadline {
             #[cfg(windows)]
             job.kill();
+            // The shell's own kill: slim containers often have no /bin/kill. Killing
+            // the child as well means wait() cannot hang even if that fails.
             #[cfg(unix)]
-            let _ = Command::new("kill")
-                .args(["-9", "--", &format!("-{}", child.id())])
+            let _ = Command::new("sh")
+                .args(["-c", &format!("kill -9 -{}", child.id())])
                 .output();
+            let _ = child.kill();
             let _ = child.wait();
             status.get_or_insert(format!("timeout after {secs}s"));
             thread::sleep(Duration::from_millis(200));
