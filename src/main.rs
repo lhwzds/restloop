@@ -15,7 +15,7 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100)"
+            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100),\n     RESTFLOW_LOG_USAGE=1 (token usage per request on stderr)"
         );
         return;
     }
@@ -85,9 +85,19 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
     }}]);
     let max_steps = env_num("RESTFLOW_MAX_STEPS", MAX_STEPS);
-    for _ in 0..max_steps {
+    let log_usage = env::var("RESTFLOW_LOG_USAGE").is_ok_and(|v| v == "1");
+    for step in 1..=max_steps {
         let body = json!({"model": model, "messages": messages, "tools": tools});
         let reply = complete(&body)?;
+        if log_usage {
+            let u = &reply["usage"];
+            eprintln!(
+                "usage: step={step} prompt_tokens={} completion_tokens={} cached_tokens={}",
+                u["prompt_tokens"],
+                u["completion_tokens"],
+                u["prompt_tokens_details"]["cached_tokens"]
+            );
+        }
         let msg = &reply["choices"][0]["message"];
         let text = msg["content"].as_str().unwrap_or("");
         if !text.trim().is_empty() {

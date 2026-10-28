@@ -32,6 +32,7 @@ export RESTFLOW_API_KEY=...
 export RESTFLOW_MODEL=...
 export RESTFLOW_TIMEOUT=120                          # seconds per command, optional
 export RESTFLOW_MAX_STEPS=100                        # model calls per task, optional
+export RESTFLOW_LOG_USAGE=1                          # token usage per request on stderr, optional
 
 restflow "fix the failing test in this repo"   # one task, then exit
 restflow                                       # read tasks from stdin, keeping the conversation
