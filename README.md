@@ -1,74 +1,61 @@
 # RestFlow
 
-**A local agent CLI with executable skills.**
+A minimal agent loop in about 240 lines of Rust, packaged as a ~1.5 MB binary.
 
-[简体中文](./README.zh-CN.md)
+RestFlow is a personal open-source project. It gives a model one tool, `shell`,
+and runs it in a loop until the model stops calling the tool. The model reads,
+writes and edits files with shell commands, the way mini-swe-agent does.
 
-[![Docs](https://img.shields.io/badge/docs-GitHub-blue)](./docs/index.md)
-[![Release](https://img.shields.io/github/v/release/lhwzds/restflow?label=latest)](https://github.com/lhwzds/restflow/releases/latest)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-dea584)](https://www.rust-lang.org/)
+| | |
+|---|---|
+| Source | `src/main.rs`, about 240 lines |
+| Dependencies | `ureq` (HTTPS), `serde_json` |
+| Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.7 MB, Windows x86_64 1.5 MB |
+| Storage | none: no database, no config file, no session files |
 
----
+## Install
 
-## What RestFlow Is
-
-RestFlow is a local agent CLI with a terminal-first interface and an external
-executable skill boundary.
-
-- **Skill Binary**: package one reusable AI capability as a portable executable unit
-- **Agent Binary**: compile one agent with its model, tools, policy, and behavior into a runnable unit
-
-The runtime center is the Rust agent loop plus TUI. Specialized external
-capabilities are packaged and run through `skrun`.
-
-In practice, this means RestFlow is a local command-line agent system:
-
-- agents
-- skills
-- executable skill runs
-
-## Quick Start
-
-### Install
-
-**Homebrew**
+Download a binary from [Releases](https://github.com/lhwzds/restflow/releases), or:
 
 ```bash
-brew install lhwzds/tap/restflow
+cargo install --git https://github.com/lhwzds/restflow
 ```
 
-**npm**
+## Use
+
+RestFlow talks to any OpenAI-compatible `/chat/completions` endpoint
+(OpenAI, Anthropic's compatibility endpoint, OpenRouter, GLM, DeepSeek, MiniMax, Ollama, ...).
 
 ```bash
-npm install -g restflow-cli
+export RESTFLOW_BASE_URL=https://api.openai.com/v1   # default
+export RESTFLOW_API_KEY=...
+export RESTFLOW_MODEL=...
+
+restflow "fix the failing test in this repo"   # one task, then exit
+restflow                                       # read tasks from stdin, keeping the conversation
 ```
 
-**From source**
+The assistant's text goes to stdout; commands and their output go to stderr.
 
-```bash
-cargo install --git https://github.com/lhwzds/restflow --package cli
-```
+## How it works
 
-### Start the daemon
+1. Send the conversation and the `shell` tool to the model.
+2. Run each requested command (`sh -c` on macOS/Linux, PowerShell on Windows)
+   with no stdin and a 300 s timeout, and send back the exit code and output
+   (truncated to 10,000 characters).
+3. Repeat until the model replies without a tool call, or after 100 steps.
 
-```bash
-restflow daemon start
-```
+Requests that fail with 429, 5xx or a network error are retried up to 5 times.
 
-### Add a model credential
+There is no sandbox and no confirmation: commands run with your permissions in
+the current directory. Run it in a container or a throwaway checkout when that matters.
+On Windows, processes a command leaves running in the background are not stopped.
 
-```bash
-restflow secret set OPENAI_API_KEY sk-xxx
-```
+## History
 
-### Open the TUI
+Versions up to 0.5 were a much larger agent CLI with a TUI, a daemon and
+executable skills. They remain available under the `v0.5.0` tag and earlier.
 
-```bash
-restflow
-```
+## License
 
-## Links
-
-- Repository: [GitHub](https://github.com/lhwzds/restflow)
-- Docs: [Repository documentation](./docs/index.md)
-- Releases: [GitHub Releases](https://github.com/lhwzds/restflow/releases/latest)
+Apache-2.0

@@ -1,8 +1,0 @@
-{
-  "id": "discord-send",
-  "name": "Discord Send",
-  "version": "0.1.0",
-  "kind": "python",
-  "description": "Send Discord webhook messages outside the RestFlow core tool registry.",
-  "entrypoint": "python run.py"
-}
