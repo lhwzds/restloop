@@ -31,6 +31,7 @@ export RESTFLOW_BASE_URL=https://api.openai.com/v1   # default
 export RESTFLOW_API_KEY=...
 export RESTFLOW_MODEL=...
 export RESTFLOW_TIMEOUT=120                          # seconds per command, optional
+export RESTFLOW_MAX_STEPS=100                        # model calls per task, optional
 
 restflow "fix the failing test in this repo"   # one task, then exit
 restflow                                       # read tasks from stdin, keeping the conversation
@@ -46,7 +47,8 @@ The assistant's text goes to stdout; commands and their output go to stderr.
    otherwise PowerShell. A command is killed, with everything it started, after
    120 s (`RESTFLOW_TIMEOUT` changes this, e.g. for long builds). Send back the
    exit code and output (truncated to 10,000 characters).
-3. Repeat until the model replies without a tool call, or after 100 steps.
+3. Repeat until the model replies without a tool call, or after 100 steps
+   (`RESTFLOW_MAX_STEPS`).
 
 Requests that fail with 429, 5xx or a network error are retried up to 5 times.
 

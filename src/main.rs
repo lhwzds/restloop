@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
-const MAX_STEPS: usize = 100;
+const MAX_STEPS: u64 = 100;
 const MAX_OUTPUT: usize = 10_000;
 const DEFAULT_TIMEOUT: u64 = 120;
 
@@ -15,7 +15,7 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120)"
+            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100)"
         );
         return;
     }
@@ -65,12 +65,17 @@ fn system_prompt() -> String {
     )
 }
 
-/// Seconds a command may run: RESTFLOW_TIMEOUT, else DEFAULT_TIMEOUT.
+/// Seconds a command may run.
 fn timeout() -> u64 {
-    env::var("RESTFLOW_TIMEOUT")
+    env_num("RESTFLOW_TIMEOUT", DEFAULT_TIMEOUT)
+}
+
+/// A number from the environment, or the default when unset or invalid.
+fn env_num(name: &str, default: u64) -> u64 {
+    env::var(name)
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_TIMEOUT)
+        .unwrap_or(default)
 }
 
 fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
@@ -79,7 +84,8 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         "description": "Run a shell command and return its exit code and output.",
         "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
     }}]);
-    for _ in 0..MAX_STEPS {
+    let max_steps = env_num("RESTFLOW_MAX_STEPS", MAX_STEPS);
+    for _ in 0..max_steps {
         let body = json!({"model": model, "messages": messages, "tools": tools});
         let reply = complete(&body)?;
         let msg = &reply["choices"][0]["message"];
@@ -119,7 +125,7 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
             messages.push(json!({"role": "tool", "tool_call_id": call["id"], "content": output}));
         }
     }
-    Err(format!("stopped after {MAX_STEPS} steps"))
+    Err(format!("stopped after {max_steps} steps"))
 }
 
 fn complete(body: &Value) -> Result<Value, String> {
