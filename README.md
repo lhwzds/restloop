@@ -1,6 +1,7 @@
 # RestLoop
 
-A minimal agent loop in about 400 lines of Rust, packaged as a ~1.5 MB binary.
+A minimal coding-agent loop: it keeps working on your task so you can rest.
+About 400 lines of Rust, packaged as a ~1.5 MB binary.
 
 RestLoop is a personal open-source project. It gives a model one tool, `shell`,
 and runs it in a loop until the model stops calling the tool. The model reads,
@@ -10,7 +11,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 |---|---|
 | Source | `src/main.rs`, about 400 lines |
 | Dependencies | `ureq` (HTTPS), `serde_json` |
-| Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.7 MB, Windows x86_64 1.5 MB |
+| Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |
 | Storage | none: no database, no config file, no session files |
 
 ## Install
@@ -62,9 +63,9 @@ the current directory. Run it in a container or a throwaway checkout when that m
 ## History
 
 RestLoop was called RestFlow up to version 0.5, a much larger agent CLI with
-a TUI, a daemon and executable skills; the new name keeps the "Rest" in its
-memory. That code is in the git history before this rewrite (commit
-`6d3f49b5`).
+a TUI, a daemon and executable skills; that code is in the git history before
+this rewrite (commit `6d3f49b5`). The new name keeps its "Rest": the loop does
+the work, you get to rest.
 
 ## License
 
