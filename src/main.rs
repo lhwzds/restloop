@@ -332,14 +332,19 @@ fn complete(body: &Value) -> Result<Value, String> {
             Err(e) => (0, e.to_string()),
         };
         if status == 200 {
-            return serde_json::from_str(&text).map_err(|e| format!("bad response: {e}: {text}"));
+            let reply: Value =
+                serde_json::from_str(&text).map_err(|e| format!("bad response: {e}: {text}"))?;
+            if reply["choices"][0]["message"].is_object() {
+                return Ok(reply);
+            }
+            // MiniMax answers some errors with HTTP 200 and no choices; that is not a reply.
         }
-        let what = if status == 0 {
-            "request failed".to_string()
-        } else {
-            format!("HTTP {status}")
+        let what = match status {
+            0 => "request failed".to_string(),
+            200 => "no reply".to_string(),
+            _ => format!("HTTP {status}"),
         };
-        if !(status == 0 || status == 429 || status >= 500) || attempt == 4 {
+        if !(status == 0 || status == 200 || status == 429 || status >= 500) || attempt == 4 {
             return Err(format!("{what}: {text}"));
         }
         eprintln!("restloop: {what}, retrying");

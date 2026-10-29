@@ -197,4 +197,19 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
         .collect();
     assert_eq!(files, [std::ffi::OsString::from("session.json")]);
     std::fs::remove_dir_all(&dir).unwrap();
+
+    // A 200 without choices (MiniMax reports some errors that way) is retried, not taken
+    // as an empty final reply.
+    let (url, bodies) = serve(vec![
+        (200, json!({"base_resp": {"status_code": 1002}})),
+        (200, done("third")),
+    ]);
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::remove_var("RESTLOOP_SESSION");
+    }
+    let mut m = vec![json!({"role": "user", "content": "three"})];
+    run("m", &mut m).unwrap();
+    assert_eq!(bodies.lock().unwrap().len(), 2);
+    assert_eq!(m[1]["content"], "third");
 }
