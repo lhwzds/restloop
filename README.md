@@ -58,6 +58,7 @@ the conversation back (`{"version": 1, "messages": [...]}`, exactly as the next
 request will send it). Running again with the same file resumes; copying the file
 first forks. The saved system prompt is reused unchanged, so a provider's prompt
 cache still matches; a resumed run's `RESTLOOP_DEADLINE` is given with the new task.
+Use a session file for one run at a time.
 
 ## How it works
 

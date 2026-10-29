@@ -222,12 +222,13 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
 }
 
 /// Writes the conversation, exactly as the next request will send it, to RESTLOOP_SESSION.
-/// A temporary file and a rename mean a killed run leaves its last complete step.
+/// A temporary file and a rename mean a killed run leaves its last complete step; the
+/// process id in its name keeps two runs on one file from writing into the same one.
 fn save(messages: &[Value]) {
     let Some(path) = env::var("RESTLOOP_SESSION").ok().filter(|p| !p.is_empty()) else {
         return;
     };
-    let tmp = format!("{path}.tmp");
+    let tmp = format!("{path}.{}.tmp", std::process::id());
     let doc = json!({"version": 1, "messages": messages});
     if let Err(e) = std::fs::write(&tmp, doc.to_string()).and_then(|_| std::fs::rename(&tmp, &path))
     {
@@ -259,13 +260,22 @@ fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
     changed
 }
 
-/// Whether an API error says the conversation no longer fits the model's context window.
+/// Whether an API error says the conversation no longer fits the model's context window,
+/// in the words providers use ("maximum context length is …" from OpenAI, DeepSeek and
+/// vLLM; "context window exceeds limit" from MiniMax; "prompt is too long" from Anthropic;
+/// "exceeds the available context size" from llama.cpp).
 fn too_long(err: &str) -> bool {
     let e = err.to_lowercase();
     (e.starts_with("http 400") || e.starts_with("http 413"))
-        && ["context", "too long", "too many tokens"]
-            .iter()
-            .any(|k| e.contains(k))
+        && [
+            "context_length_exceeded",
+            "maximum context length",
+            "context window exceeds",
+            "prompt is too long",
+            "exceeds the available context size",
+        ]
+        .iter()
+        .any(|k| e.contains(k))
 }
 
 /// Cuts the older half of the command outputs down to their exit line and drops old
