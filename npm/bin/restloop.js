@@ -9,12 +9,8 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const VERSION = require("../package.json").version;
-const ASSETS = {
-  "darwin arm64": ["restloop-aarch64-apple-darwin", "c02d35077979e9cbef281929939fde3c921bc1b2b9e7b551e423fbf2f593544d"],
-  "darwin x64": ["restloop-x86_64-apple-darwin", "d096b991173eb97b76cb5e4586c18103f279e4f4fd2a899a457573c312bef763"],
-  "linux x64": ["restloop-x86_64-unknown-linux-musl", "a987f3507c8a8e4b7a6e0faaacdbc81cd8f457ac77d484934548d3fd1b389d17"],
-  "win32 x64": ["restloop-x86_64-pc-windows-msvc.exe", "8303882528dafe520c936cba2a3b7274ce81e27c16a202e74570e09116817c6a"],
-};
+// Platform -> [release asset, SHA-256], written by the release workflow for each version.
+const ASSETS = require("../checksums.json");
 
 function fail(msg) {
   console.error(`restloop: ${msg}`);

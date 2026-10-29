@@ -17,13 +17,13 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 ## Install
 
 ```bash
-brew install lhwzds/tap/restloop                       # macOS, Linux x86_64
+brew install lhwzds/tap/restloop                       # macOS, Linux
 npm install -g restloop                                # downloads the binary on first run
 cargo install --git https://github.com/lhwzds/restloop
 ```
 
 Or download a binary from [Releases](https://github.com/lhwzds/restloop/releases)
-(macOS, Linux x86_64, Windows).
+(macOS, Linux x86_64 and arm64, Windows); `SHA256SUMS` lists their checksums.
 
 ## Use
 
