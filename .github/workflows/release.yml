@@ -1,11 +1,11 @@
 name: release
 
-# A v* tag builds the binaries, publishes the GitHub release with checksums, and
+# A vX.Y.Z tag builds the binaries, publishes the GitHub release with checksums, and
 # updates the Homebrew formula and the npm package. Run it by hand for a dry run:
 # it builds and computes the checksums but publishes nothing.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
 
 permissions:
@@ -63,7 +63,13 @@ jobs:
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes ""
+        # Re-runs upload into the existing release instead of failing.
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes ""
+          fi
 
   homebrew:
     needs: release

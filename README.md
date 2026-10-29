@@ -47,6 +47,10 @@ restloop                                       # read tasks from stdin, keeping 
 
 The assistant's text goes to stdout; commands and their output go to stderr.
 
+When the task has a time limit, set `RESTLOOP_DEADLINE` to it. On Terminal-Bench
+(30 tasks, MiniMax-M3.1-Flash) this took RestLoop from 20 to 24 solved tasks and
+from 5 timeouts to 1.
+
 ## How it works
 
 1. Send the conversation and the `shell` tool to the model.
