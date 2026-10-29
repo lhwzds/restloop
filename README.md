@@ -16,11 +16,13 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 
 ## Install
 
-Download a binary from [Releases](https://github.com/lhwzds/restloop/releases), or:
-
 ```bash
+brew install lhwzds/tap/restloop                       # macOS, Linux x86_64
 cargo install --git https://github.com/lhwzds/restloop
 ```
+
+Or download a binary from [Releases](https://github.com/lhwzds/restloop/releases)
+(macOS, Linux x86_64, Windows).
 
 ## Use
 
