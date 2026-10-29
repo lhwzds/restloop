@@ -18,6 +18,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 
 ```bash
 brew install lhwzds/tap/restloop                       # macOS, Linux x86_64
+npm install -g restloop                                # downloads the binary on first run
 cargo install --git https://github.com/lhwzds/restloop
 ```
 

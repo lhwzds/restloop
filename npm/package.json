@@ -1,0 +1,13 @@
+{
+  "name": "restloop",
+  "version": "0.1.0",
+  "description": "A minimal coding-agent loop: it keeps working on your task so you can rest.",
+  "bin": { "restloop": "bin/restloop.js" },
+  "files": ["bin/restloop.js", "README.md"],
+  "repository": { "type": "git", "url": "git+https://github.com/lhwzds/restloop.git" },
+  "homepage": "https://github.com/lhwzds/restloop",
+  "license": "Apache-2.0",
+  "keywords": ["agent", "llm", "cli", "coding-agent"],
+  "os": ["darwin", "linux", "win32"],
+  "engines": { "node": ">=18" }
+}
