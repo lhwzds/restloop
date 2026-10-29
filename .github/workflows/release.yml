@@ -1,8 +1,9 @@
 name: release
 
 # A vX.Y.Z tag builds the binaries, publishes the GitHub release with checksums, and
-# updates the Homebrew formula and the npm package. Run it by hand for a dry run:
-# it builds and computes the checksums but publishes nothing.
+# updates the Homebrew formula. Run it by hand for a dry run: it builds and computes
+# the checksums but publishes nothing. The npm package is published by hand:
+#   node npm/stamp.js X.Y.Z SHA256SUMS && (cd npm && npm publish --access public)
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -65,7 +66,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # Published binaries are never replaced: the npm package pins their checksums.
-        # To retry a later job (Homebrew, npm), re-run only the failed jobs.
+        # To retry the Homebrew job, re-run only the failed jobs.
         run: |
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::release $GITHUB_REF_NAME already exists; re-run only the failed jobs, or delete it first"
@@ -136,29 +137,3 @@ jobs:
           if git diff --cached --quiet; then echo "formula already at $v"; exit 0; fi
           git commit -m "Update restloop to $v"
           git push
-
-  npm:
-    needs: release
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-      - run: node npm/stamp.js "${GITHUB_REF_NAME#v}" dist/SHA256SUMS
-      # Trusted publishing: npmjs.com must list lhwzds/restloop, workflow release.yml.
-      - name: Publish
-        working-directory: npm
-        run: |
-          v="${GITHUB_REF_NAME#v}"
-          if npm view "restloop@$v" version >/dev/null 2>&1; then echo "restloop@$v already on npm"; exit 0; fi
-          npm publish --access public --provenance

@@ -9,7 +9,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const VERSION = require("../package.json").version;
-// Platform -> [release asset, SHA-256], written by the release workflow for each version.
+// Platform -> [release asset, SHA-256], written by npm/stamp.js for each version.
 const ASSETS = require("../checksums.json");
 
 function fail(msg) {
