@@ -62,7 +62,8 @@ the current directory. Run it in a container or a throwaway checkout when that m
 ## History
 
 Versions up to 0.5 were a much larger agent CLI with a TUI, a daemon and
-executable skills. They remain available under the `v0.5.0` tag and earlier.
+executable skills. That code is in the git history before this rewrite
+(commit `6d3f49b5`).
 
 ## License
 
