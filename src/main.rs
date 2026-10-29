@@ -17,7 +17,7 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100),\n     RESTFLOW_LOG_USAGE=1 (token usage per request on stderr),\n     RESTFLOW_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTFLOW_LAST_MESSAGE (file that receives the final reply)"
+            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100),\n     RESTFLOW_LOG_USAGE=1 (token usage per request on stderr),\n     RESTFLOW_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTFLOW_LAST_MESSAGE (file that receives the final reply),\n     RESTFLOW_TRIM_THINKING_AT (prompt tokens; past it, keep reasoning of the last 2 replies only)"
         );
         return;
     }
@@ -103,6 +103,7 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
     }}]);
     let max_steps = env_num("RESTFLOW_MAX_STEPS", MAX_STEPS);
     let log_usage = env::var("RESTFLOW_LOG_USAGE").is_ok_and(|v| v == "1");
+    let trim_at = env_num("RESTFLOW_TRIM_THINKING_AT", 0);
     // RESTFLOW_LAST_MESSAGE: the final reply goes to this file. Remove an old one first
     // so a run that stops early cannot leave the previous run's answer behind.
     let last_message = env::var("RESTFLOW_LAST_MESSAGE").ok();
@@ -136,6 +137,14 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
             keep["tool_calls"] = json!(calls);
         }
         messages.push(keep);
+        // Old reasoning is most of the context growth. Past the threshold, keep it only
+        // for the last two replies; trimming in bursts keeps the cached prefix stable.
+        if trim_at > 0 && reply["usage"]["prompt_tokens"].as_u64().unwrap_or(0) > trim_at {
+            let n = trim_thinking(messages, 2);
+            if n > 0 {
+                eprintln!("restflow: dropped the reasoning of {n} older replies");
+            }
+        }
         if calls.is_empty() {
             if let Some(path) = &last_message {
                 // Some models put their reasoning in <think> tags inside the reply.
@@ -174,6 +183,30 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         }
     }
     Err(format!("stopped after {max_steps} steps"))
+}
+
+/// Removes the reasoning from all assistant messages but the last `keep`; returns how many changed.
+fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
+    let mut changed = 0;
+    for m in messages
+        .iter_mut()
+        .rev()
+        .filter(|m| m["role"] == "assistant")
+        .skip(keep)
+    {
+        let had = m
+            .as_object_mut()
+            .and_then(|o| o.remove("reasoning_content"));
+        let stripped = m["content"]
+            .as_str()
+            .and_then(|t| t.rsplit_once("</think>"))
+            .map(|(_, a)| a.trim().to_string());
+        if let Some(s) = &stripped {
+            m["content"] = json!(s);
+        }
+        changed += usize::from(had.is_some() || stripped.is_some());
+    }
+    changed
 }
 
 fn complete(body: &Value) -> Result<Value, String> {
