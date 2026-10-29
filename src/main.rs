@@ -3,19 +3,21 @@
 use serde_json::{Value, json};
 use std::io::{BufRead, Read};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
 const MAX_STEPS: u64 = 100;
+static START: OnceLock<Instant> = OnceLock::new();
 const MAX_OUTPUT: usize = 10_000;
 const DEFAULT_TIMEOUT: u64 = 120;
 
 fn main() {
+    START.get_or_init(Instant::now);
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100),\n     RESTFLOW_LOG_USAGE=1 (token usage per request on stderr)"
+            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100),\n     RESTFLOW_LOG_USAGE=1 (token usage per request on stderr),\n     RESTFLOW_DEADLINE (seconds for the whole task; the model is told the time used)"
         );
         return;
     }
@@ -54,15 +56,30 @@ fn system_prompt() -> String {
         .map(|p| p.display().to_string())
         .unwrap_or_default();
     format!(
-        "You are a coding agent. Use the shell tool to inspect files, edit them and run commands until the task is done, then reply with a short summary and no tool call.\nOS: {}. Shell: {}. Working directory: {cwd}.\nCommands run non-interactively with no stdin and a {}s timeout; long output is truncated.",
+        "You are a coding agent. Use the shell tool to inspect files, edit them and run commands until the task is done, then reply with a short summary and no tool call.\nOS: {}. Shell: {}. Working directory: {cwd}.\nCommands run non-interactively with no stdin and a {}s timeout; long output is truncated.{}",
         env::consts::OS,
         match shell_path() {
             Some(_) if cfg!(windows) => "bash (Git Bash)",
             Some(_) => "sh",
             None => "PowerShell",
         },
-        timeout()
+        timeout(),
+        deadline().map_or(String::new(), |d| format!(
+            "\nYou have {d}s in total for this task; each tool result ends with the time used so far."
+        ))
     )
+}
+
+/// The whole task's time budget in seconds (RESTFLOW_DEADLINE), if set.
+fn deadline() -> Option<u64> {
+    env::var("RESTFLOW_DEADLINE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+}
+
+/// Seconds since restflow started.
+fn elapsed() -> u64 {
+    START.get_or_init(Instant::now).elapsed().as_secs()
 }
 
 /// Seconds a command may run.
@@ -92,10 +109,11 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         if log_usage {
             let u = &reply["usage"];
             eprintln!(
-                "usage: step={step} prompt_tokens={} completion_tokens={} cached_tokens={}",
+                "usage: step={step} prompt_tokens={} completion_tokens={} cached_tokens={} elapsed={}s",
                 u["prompt_tokens"],
                 u["completion_tokens"],
-                u["prompt_tokens_details"]["cached_tokens"]
+                u["prompt_tokens_details"]["cached_tokens"],
+                elapsed()
             );
         }
         let msg = &reply["choices"][0]["message"];
@@ -121,11 +139,18 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
             let output = match a["command"].as_str() {
                 Some(cmd) => {
                     eprintln!("\x1b[2m$ {cmd}\x1b[0m");
-                    let out = shell(cmd, timeout());
+                    // A command may not outlive the task's time budget.
+                    let left = deadline().map_or(u64::MAX, |d| d.saturating_sub(elapsed()).max(1));
+                    let t = Instant::now();
+                    let mut out = shell(cmd, timeout().min(left));
                     eprintln!(
-                        "\x1b[2m{}\x1b[0m",
+                        "\x1b[2m[{:.1}s] {}\x1b[0m",
+                        t.elapsed().as_secs_f64(),
                         out.lines().take(10).collect::<Vec<_>>().join("\n")
                     );
+                    if let Some(d) = deadline() {
+                        out.push_str(&format!("\n[time used: {}s of {d}s]", elapsed()));
+                    }
                     out
                 }
                 None => {
