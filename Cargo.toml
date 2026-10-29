@@ -1,10 +1,10 @@
 [package]
-name = "restflow"
-version = "0.6.0"
+name = "restloop"
+version = "0.1.0"
 edition = "2024"
 description = "A minimal agent loop: one model, one shell tool."
 license = "Apache-2.0"
-repository = "https://github.com/lhwzds/restflow"
+repository = "https://github.com/lhwzds/restloop"
 
 [dependencies]
 serde_json = "1"

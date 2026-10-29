@@ -23,8 +23,8 @@ jobs:
       - shell: bash
         run: |
           ext=""; [[ "${{ matrix.target }}" == *windows* ]] && ext=".exe"
-          cp target/${{ matrix.target }}/release/restflow$ext restflow-${{ matrix.target }}$ext
+          cp target/${{ matrix.target }}/release/restloop$ext restloop-${{ matrix.target }}$ext
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "" 2>/dev/null || true
-          gh release upload "$GITHUB_REF_NAME" restflow-${{ matrix.target }}$ext --clobber
+          gh release upload "$GITHUB_REF_NAME" restloop-${{ matrix.target }}$ext --clobber
         env:
           GH_TOKEN: ${{ github.token }}

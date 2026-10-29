@@ -1,4 +1,4 @@
-//! restflow: a minimal agent loop. One model, one shell tool.
+//! restloop: a minimal agent loop. One model, one shell tool.
 
 use serde_json::{Value, json};
 use std::io::{BufRead, Read};
@@ -17,19 +17,19 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100),\n     RESTFLOW_LOG_USAGE=1 (token usage per request on stderr),\n     RESTFLOW_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTFLOW_LAST_MESSAGE (file that receives the final reply),\n     RESTFLOW_TRIM_THINKING_AT (prompt tokens; past it, keep reasoning of the last 2 replies only)"
+            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage per request on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_TRIM_THINKING_AT (prompt tokens; past it, keep reasoning of the last 2 replies only)"
         );
         return;
     }
-    let Ok(model) = env::var("RESTFLOW_MODEL") else {
-        eprintln!("restflow: set RESTFLOW_MODEL (see --help)");
+    let Ok(model) = env::var("RESTLOOP_MODEL") else {
+        eprintln!("restloop: set RESTLOOP_MODEL (see --help)");
         std::process::exit(2);
     };
     let mut messages = vec![json!({"role": "system", "content": system_prompt()})];
     let ask = |text: &str, messages: &mut Vec<Value>| {
         messages.push(json!({"role": "user", "content": text}));
         if let Err(e) = run(&model, messages) {
-            eprintln!("restflow: {e}");
+            eprintln!("restloop: {e}");
             return false;
         }
         true
@@ -70,21 +70,21 @@ fn system_prompt() -> String {
     )
 }
 
-/// The whole task's time budget in seconds (RESTFLOW_DEADLINE), if set.
+/// The whole task's time budget in seconds (RESTLOOP_DEADLINE), if set.
 fn deadline() -> Option<u64> {
-    env::var("RESTFLOW_DEADLINE")
+    env::var("RESTLOOP_DEADLINE")
         .ok()
         .and_then(|v| v.parse().ok())
 }
 
-/// Seconds since restflow started.
+/// Seconds since restloop started.
 fn elapsed() -> u64 {
     START.get_or_init(Instant::now).elapsed().as_secs()
 }
 
 /// Seconds a command may run.
 fn timeout() -> u64 {
-    env_num("RESTFLOW_TIMEOUT", DEFAULT_TIMEOUT)
+    env_num("RESTLOOP_TIMEOUT", DEFAULT_TIMEOUT)
 }
 
 /// A number from the environment, or the default when unset or invalid.
@@ -101,12 +101,12 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         "description": "Run a shell command and return its exit code and output.",
         "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
     }}]);
-    let max_steps = env_num("RESTFLOW_MAX_STEPS", MAX_STEPS);
-    let log_usage = env::var("RESTFLOW_LOG_USAGE").is_ok_and(|v| v == "1");
-    let trim_at = env_num("RESTFLOW_TRIM_THINKING_AT", 0);
-    // RESTFLOW_LAST_MESSAGE: the final reply goes to this file. Remove an old one first
+    let max_steps = env_num("RESTLOOP_MAX_STEPS", MAX_STEPS);
+    let log_usage = env::var("RESTLOOP_LOG_USAGE").is_ok_and(|v| v == "1");
+    let trim_at = env_num("RESTLOOP_TRIM_THINKING_AT", 0);
+    // RESTLOOP_LAST_MESSAGE: the final reply goes to this file. Remove an old one first
     // so a run that stops early cannot leave the previous run's answer behind.
-    let last_message = env::var("RESTFLOW_LAST_MESSAGE").ok();
+    let last_message = env::var("RESTLOOP_LAST_MESSAGE").ok();
     if let Some(path) = &last_message {
         let _ = std::fs::remove_file(path);
     }
@@ -142,7 +142,7 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         if trim_at > 0 && reply["usage"]["prompt_tokens"].as_u64().unwrap_or(0) > trim_at {
             let n = trim_thinking(messages, 2);
             if n > 0 {
-                eprintln!("restflow: dropped the reasoning of {n} older replies");
+                eprintln!("restloop: dropped the reasoning of {n} older replies");
             }
         }
         if calls.is_empty() {
@@ -150,7 +150,7 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
                 // Some models put their reasoning in <think> tags inside the reply.
                 let answer = text.rsplit_once("</think>").map_or(text, |(_, a)| a).trim();
                 if let Err(e) = std::fs::write(path, format!("{answer}\n")) {
-                    eprintln!("restflow: cannot write {path}: {e}");
+                    eprintln!("restloop: cannot write {path}: {e}");
                 }
             }
             return Ok(());
@@ -210,9 +210,9 @@ fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
 }
 
 fn complete(body: &Value) -> Result<Value, String> {
-    let base = env::var("RESTFLOW_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".into());
+    let base = env::var("RESTLOOP_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".into());
     let url = format!("{}/chat/completions", base.trim_end_matches('/'));
-    let key = env::var("RESTFLOW_API_KEY").unwrap_or_default();
+    let key = env::var("RESTLOOP_API_KEY").unwrap_or_default();
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .timeout_global(Some(Duration::from_secs(600)))
@@ -241,7 +241,7 @@ fn complete(body: &Value) -> Result<Value, String> {
         if !(status == 0 || status == 429 || status >= 500) || attempt == 4 {
             return Err(format!("{what}: {text}"));
         }
-        eprintln!("restflow: {what}, retrying");
+        eprintln!("restloop: {what}, retrying");
         thread::sleep(Duration::from_secs(2 << attempt));
     }
     unreachable!()
