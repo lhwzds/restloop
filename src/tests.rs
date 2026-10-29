@@ -49,9 +49,11 @@ fn trim_thinking_keeps_the_last_two_replies() {
         .collect();
     assert_eq!(trim_thinking(&mut m, 2), 2);
     assert_eq!(m[0]["content"], "a0");
-    assert!(m[1].get("reasoning_content").is_none());
+    // Emptied, not removed (DeepSeek needs the field on every reply of a tool turn).
+    assert_eq!(m[1]["reasoning_content"], "");
     assert_eq!(m[3]["content"], "<think>t3</think>a3");
     assert_eq!(m[3]["reasoning_content"], "r");
+    assert_eq!(trim_thinking(&mut m, 2), 0);
 }
 
 #[test]

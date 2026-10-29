@@ -239,6 +239,8 @@ fn save(messages: &[Value]) {
 }
 
 /// Removes the reasoning from all assistant messages but the last `keep`; returns how many changed.
+/// `reasoning_content` is emptied, not removed: DeepSeek rejects a tool turn in which an
+/// assistant message has lost the field.
 fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
     let mut changed = 0;
     for m in messages
@@ -248,8 +250,9 @@ fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
         .skip(keep)
     {
         let had = m
-            .as_object_mut()
-            .and_then(|o| o.remove("reasoning_content"));
+            .get_mut("reasoning_content")
+            .filter(|r| r.as_str() != Some(""))
+            .map(|r| *r = json!(""));
         let stripped = m["content"]
             .as_str()
             .and_then(|t| t.rsplit_once("</think>"))
