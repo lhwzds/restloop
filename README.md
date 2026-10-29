@@ -10,6 +10,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 | | |
 |---|---|
 | Source | `src/main.rs`, under 500 lines |
+| Tests | `src/tests.rs`; CI runs them on macOS, Linux and Windows |
 | Dependencies | `ureq` (HTTPS), `serde_json` |
 | Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |
 | Storage | none by default: no database, no config file; a session file only when `RESTLOOP_SESSION` is set |
@@ -58,7 +59,8 @@ the conversation back (`{"version": 1, "messages": [...]}`, exactly as the next
 request will send it). Running again with the same file resumes; copying the file
 first forks. The saved system prompt is reused unchanged, so a provider's prompt
 cache still matches; a resumed run's `RESTLOOP_DEADLINE` is given with the new task.
-Use a session file for one run at a time.
+Use a session file for one run at a time. The file may be edited between runs (trimmed,
+rewritten, merged); any valid chat messages under version 1 load.
 
 ## How it works
 

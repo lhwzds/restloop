@@ -25,24 +25,7 @@ fn main() {
         eprintln!("restloop: set RESTLOOP_MODEL (see --help)");
         std::process::exit(2);
     };
-    // RESTLOOP_SESSION: continue the conversation saved in this file, if there is one.
-    let session = env::var("RESTLOOP_SESSION").ok().filter(|p| !p.is_empty());
-    let mut messages = match &session {
-        Some(path) if std::path::Path::new(path).exists() => {
-            let doc: Value = std::fs::read_to_string(path)
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default();
-            match doc["messages"].as_array() {
-                Some(m) if doc["version"] == 1 && !m.is_empty() => m.clone(),
-                _ => {
-                    eprintln!("restloop: {path} is not a restloop session");
-                    std::process::exit(2);
-                }
-            }
-        }
-        _ => vec![json!({"role": "system", "content": system_prompt()})],
-    };
+    let mut messages = conversation();
     let resumed = messages.len() > 1;
     let ask = |text: &str, messages: &mut Vec<Value>| {
         // A resumed conversation keeps its system prompt, so the provider's cache still
@@ -73,6 +56,25 @@ fn main() {
         }
         if !line.trim().is_empty() {
             ask(line.trim(), &mut messages);
+        }
+    }
+}
+
+/// The conversation saved in RESTLOOP_SESSION if that file exists, else a new one.
+fn conversation() -> Vec<Value> {
+    let path = env::var("RESTLOOP_SESSION").unwrap_or_default();
+    if path.is_empty() || !std::path::Path::new(&path).exists() {
+        return vec![json!({"role": "system", "content": system_prompt()})];
+    }
+    let doc: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    match doc["messages"].as_array() {
+        Some(m) if doc["version"] == 1 && !m.is_empty() => m.clone(),
+        _ => {
+            eprintln!("restloop: {path} is not a restloop session");
+            std::process::exit(2);
         }
     }
 }
@@ -484,3 +486,6 @@ mod win {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
