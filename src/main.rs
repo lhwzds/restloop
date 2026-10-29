@@ -111,8 +111,16 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         let _ = std::fs::remove_file(path);
     }
     for step in 1..=max_steps {
-        let body = json!({"model": model, "messages": messages, "tools": tools});
-        let reply = complete(&body)?;
+        let reply = loop {
+            let body = json!({"model": model, "messages": messages, "tools": tools});
+            match complete(&body) {
+                // Past the model's context window: shorten old command output and retry.
+                Err(e) if too_long(&e) && drop_old_output(messages) > 0 => {
+                    eprintln!("restloop: context too long, dropped old command output")
+                }
+                r => break r?,
+            }
+        };
         if log_usage {
             let u = &reply["usage"];
             eprintln!(
@@ -207,6 +215,42 @@ fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
         changed += usize::from(had.is_some() || stripped.is_some());
     }
     changed
+}
+
+/// Whether an API error says the conversation no longer fits the model's context window.
+fn too_long(err: &str) -> bool {
+    let e = err.to_lowercase();
+    (e.starts_with("http 400") || e.starts_with("http 413"))
+        && ["context", "too long", "too many tokens"]
+            .iter()
+            .any(|k| e.contains(k))
+}
+
+/// Cuts the older half of the command outputs down to their exit line and drops old
+/// reasoning; returns how many messages changed (0: nothing left to shorten).
+fn drop_old_output(messages: &mut [Value]) -> usize {
+    const NOTE: &str = "[output removed to fit the context window]";
+    let old: Vec<usize> = (0..messages.len())
+        .filter(|&i| messages[i]["role"] == "tool")
+        .filter(|&i| {
+            !messages[i]["content"]
+                .as_str()
+                .unwrap_or("")
+                .ends_with(NOTE)
+        })
+        .collect();
+    let old = &old[..old.len().div_ceil(2)];
+    for &i in old {
+        let exit = messages[i]["content"]
+            .as_str()
+            .unwrap_or("")
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string();
+        messages[i]["content"] = json!(format!("{exit}\n{NOTE}"));
+    }
+    old.len() + trim_thinking(messages, 2)
 }
 
 fn complete(body: &Value) -> Result<Value, String> {

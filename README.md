@@ -63,6 +63,9 @@ from 5 timeouts to 1.
    (`RESTLOOP_MAX_STEPS`).
 
 Requests that fail with 429, 5xx or a network error are retried up to 5 times.
+When the conversation no longer fits the model's context window, the older half
+of the command outputs is cut down to its exit line (and old reasoning dropped)
+before the request is sent again.
 
 There is no sandbox and no confirmation: commands run with your permissions in
 the current directory. Run it in a container or a throwaway checkout when that matters.
