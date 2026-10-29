@@ -17,7 +17,7 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100),\n     RESTFLOW_LOG_USAGE=1 (token usage per request on stderr),\n     RESTFLOW_DEADLINE (seconds for the whole task; the model is told the time used)"
+            "usage: restflow [task]   (no task: read tasks from stdin)\n\nenv: RESTFLOW_MODEL (required), RESTFLOW_API_KEY, RESTFLOW_BASE_URL (default https://api.openai.com/v1),\n     RESTFLOW_TIMEOUT (seconds per command, default 120), RESTFLOW_MAX_STEPS (default 100),\n     RESTFLOW_LOG_USAGE=1 (token usage per request on stderr),\n     RESTFLOW_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTFLOW_LAST_MESSAGE (file that receives the final reply)"
         );
         return;
     }
@@ -103,6 +103,12 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
     }}]);
     let max_steps = env_num("RESTFLOW_MAX_STEPS", MAX_STEPS);
     let log_usage = env::var("RESTFLOW_LOG_USAGE").is_ok_and(|v| v == "1");
+    // RESTFLOW_LAST_MESSAGE: the final reply goes to this file. Remove an old one first
+    // so a run that stops early cannot leave the previous run's answer behind.
+    let last_message = env::var("RESTFLOW_LAST_MESSAGE").ok();
+    if let Some(path) = &last_message {
+        let _ = std::fs::remove_file(path);
+    }
     for step in 1..=max_steps {
         let body = json!({"model": model, "messages": messages, "tools": tools});
         let reply = complete(&body)?;
@@ -131,6 +137,13 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         }
         messages.push(keep);
         if calls.is_empty() {
+            if let Some(path) = &last_message {
+                // Some models put their reasoning in <think> tags inside the reply.
+                let answer = text.rsplit_once("</think>").map_or(text, |(_, a)| a).trim();
+                if let Err(e) = std::fs::write(path, format!("{answer}\n")) {
+                    eprintln!("restflow: cannot write {path}: {e}");
+                }
+            }
             return Ok(());
         }
         for call in &calls {

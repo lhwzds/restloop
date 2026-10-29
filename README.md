@@ -34,6 +34,7 @@ export RESTFLOW_TIMEOUT=120                          # seconds per command, opti
 export RESTFLOW_MAX_STEPS=100                        # model calls per task, optional
 export RESTFLOW_LOG_USAGE=1                          # token usage per request on stderr, optional
 export RESTFLOW_DEADLINE=1800                        # seconds for the whole task, optional; the model sees the time used
+export RESTFLOW_LAST_MESSAGE=last.txt                # file that receives the final reply, optional
 
 restflow "fix the failing test in this repo"   # one task, then exit
 restflow                                       # read tasks from stdin, keeping the conversation
