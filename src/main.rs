@@ -17,7 +17,7 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage per request on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_TRIM_THINKING_AT (prompt tokens; past it, keep reasoning of the last 2 replies only)"
+            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage per request on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_TRIM_THINKING_AT (prompt tokens; past it, keep reasoning of the last 2 replies only),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
         );
         return;
     }
@@ -25,8 +25,34 @@ fn main() {
         eprintln!("restloop: set RESTLOOP_MODEL (see --help)");
         std::process::exit(2);
     };
-    let mut messages = vec![json!({"role": "system", "content": system_prompt()})];
+    // RESTLOOP_SESSION: continue the conversation saved in this file, if there is one.
+    let session = env::var("RESTLOOP_SESSION").ok().filter(|p| !p.is_empty());
+    let mut messages = match &session {
+        Some(path) if std::path::Path::new(path).exists() => {
+            let doc: Value = std::fs::read_to_string(path)
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default();
+            match doc["messages"].as_array() {
+                Some(m) if doc["version"] == 1 && !m.is_empty() => m.clone(),
+                _ => {
+                    eprintln!("restloop: {path} is not a restloop session");
+                    std::process::exit(2);
+                }
+            }
+        }
+        _ => vec![json!({"role": "system", "content": system_prompt()})],
+    };
+    let resumed = messages.len() > 1;
     let ask = |text: &str, messages: &mut Vec<Value>| {
+        // A resumed conversation keeps its system prompt, so the provider's cache still
+        // matches; this run's time budget comes with the new message instead.
+        let text = match deadline() {
+            Some(d) if resumed => format!(
+                "{text}\n\n[You have {d}s in total for this request; the time used in tool results counts from now.]"
+            ),
+            _ => text.to_string(),
+        };
         messages.push(json!({"role": "user", "content": text}));
         if let Err(e) = run(&model, messages) {
             eprintln!("restloop: {e}");
@@ -154,6 +180,7 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
             }
         }
         if calls.is_empty() {
+            save(messages);
             if let Some(path) = &last_message {
                 // Some models put their reasoning in <think> tags inside the reply.
                 let answer = text.rsplit_once("</think>").map_or(text, |(_, a)| a).trim();
@@ -189,8 +216,23 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
             };
             messages.push(json!({"role": "tool", "tool_call_id": call["id"], "content": output}));
         }
+        save(messages);
     }
     Err(format!("stopped after {max_steps} steps"))
+}
+
+/// Writes the conversation, exactly as the next request will send it, to RESTLOOP_SESSION.
+/// A temporary file and a rename mean a killed run leaves its last complete step.
+fn save(messages: &[Value]) {
+    let Some(path) = env::var("RESTLOOP_SESSION").ok().filter(|p| !p.is_empty()) else {
+        return;
+    };
+    let tmp = format!("{path}.tmp");
+    let doc = json!({"version": 1, "messages": messages});
+    if let Err(e) = std::fs::write(&tmp, doc.to_string()).and_then(|_| std::fs::rename(&tmp, &path))
+    {
+        eprintln!("restloop: cannot save {path}: {e}");
+    }
 }
 
 /// Removes the reasoning from all assistant messages but the last `keep`; returns how many changed.
