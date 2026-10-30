@@ -1,6 +1,22 @@
 {
-  "darwin arm64": ["restloop-aarch64-apple-darwin", "c02d35077979e9cbef281929939fde3c921bc1b2b9e7b551e423fbf2f593544d"],
-  "darwin x64": ["restloop-x86_64-apple-darwin", "d096b991173eb97b76cb5e4586c18103f279e4f4fd2a899a457573c312bef763"],
-  "linux x64": ["restloop-x86_64-unknown-linux-musl", "a987f3507c8a8e4b7a6e0faaacdbc81cd8f457ac77d484934548d3fd1b389d17"],
-  "win32 x64": ["restloop-x86_64-pc-windows-msvc.exe", "8303882528dafe520c936cba2a3b7274ce81e27c16a202e74570e09116817c6a"]
+  "darwin arm64": [
+    "restloop-aarch64-apple-darwin",
+    "d04c576806df6eaf9c2867a5cfd4d923746767e7d2dfb5cfa92699e57f134838"
+  ],
+  "darwin x64": [
+    "restloop-x86_64-apple-darwin",
+    "a8cc4353c2c57ca003bb45b250a7578154be02f9c9dbc6320ef4f42a578cac12"
+  ],
+  "linux x64": [
+    "restloop-x86_64-unknown-linux-musl",
+    "58db49336270c07ec4f741efb2df501fed45224a2a39faabc03821a5ea8c8d17"
+  ],
+  "linux arm64": [
+    "restloop-aarch64-unknown-linux-musl",
+    "6257113337219bb721b84c76fe2848134eb9ace77ab0bbac206de5eb54720e1b"
+  ],
+  "win32 x64": [
+    "restloop-x86_64-pc-windows-msvc.exe",
+    "bea70a7329c0021c6ebfb1800e9241f53e60f71392b9dd30af03adc790f5bf3a"
+  ]
 }
