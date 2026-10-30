@@ -17,7 +17,7 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage per request on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
+            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_API_KEY_FILE (file holding the key, read for every request),\n     RESTLOOP_WIRE_API=responses (use /responses instead of /chat/completions),\n     RESTLOOP_REASONING_EFFORT (e.g. low, medium, high),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage of each model reply on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
         );
         return;
     }
@@ -165,8 +165,11 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         }
         let calls = msg["tool_calls"].as_array().cloned().unwrap_or_default();
         let mut keep = json!({"role": "assistant", "content": text});
-        if let Some(r) = msg.get("reasoning_content").filter(|r| !r.is_null()) {
-            keep["reasoning_content"] = r.clone();
+        // output_items: the Responses API's output, opaque reasoning included, sent back as it came.
+        for field in ["reasoning_content", "output_items"] {
+            if let Some(r) = msg.get(field).filter(|r| !r.is_null()) {
+                keep[field] = r.clone();
+            }
         }
         if !calls.is_empty() {
             keep["tool_calls"] = json!(calls);
@@ -244,6 +247,12 @@ fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
             .get_mut("reasoning_content")
             .filter(|r| r.as_str() != Some(""))
             .map(|r| *r = json!(""));
+        // Of the Responses API's output, only the reasoning goes: messages keep their phase.
+        let had = had.or(m
+            .get_mut("output_items")
+            .and_then(Value::as_array_mut)
+            .filter(|o| o.iter().any(|i| i["type"] == "reasoning"))
+            .map(|o| o.retain(|i| i["type"] != "reasoning")));
         let stripped = m["content"]
             .as_str()
             .and_then(|t| t.rsplit_once("</think>"))
@@ -262,7 +271,7 @@ fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
 /// "exceeds the available context size" from llama.cpp).
 fn too_long(err: &str) -> bool {
     let e = err.to_lowercase();
-    (e.starts_with("http 400") || e.starts_with("http 413"))
+    (e.starts_with("http 400") || e.starts_with("http 413") || e.starts_with("no reply: "))
         && [
             "context_length_exceeded",
             "maximum context length",
@@ -274,7 +283,7 @@ fn too_long(err: &str) -> bool {
         .any(|k| e.contains(k))
 }
 
-/// Cuts the older half of the command outputs down to their exit line and drops old
+/// Cuts the older half of the command outputs down to their first line and drops old
 /// reasoning; returns how many messages changed (0: nothing left to shorten).
 fn drop_old_output(messages: &mut [Value]) -> usize {
     const NOTE: &str = "[output removed to fit the context window]";
@@ -303,26 +312,52 @@ fn drop_old_output(messages: &mut [Value]) -> usize {
 
 fn complete(body: &Value) -> Result<Value, String> {
     let base = env::var("RESTLOOP_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".into());
-    let url = format!("{}/chat/completions", base.trim_end_matches('/'));
-    let key = env::var("RESTLOOP_API_KEY").unwrap_or_default();
+    let responses = env::var("RESTLOOP_WIRE_API").is_ok_and(|v| v == "responses");
+    let (path, mut body) = match responses {
+        true => ("responses", responses_request(body)),
+        false => ("chat/completions", body.clone()),
+    };
+    if let Ok(e) = env::var("RESTLOOP_REASONING_EFFORT")
+        && !e.is_empty()
+    {
+        match responses {
+            true => body["reasoning"] = json!({"effort": e}),
+            false => body["reasoning_effort"] = json!(e),
+        }
+    }
+    let url = format!("{}/{path}", base.trim_end_matches('/'));
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .timeout_global(Some(Duration::from_secs(600)))
         .build()
         .into();
     for attempt in 0..5 {
+        // RESTLOOP_API_KEY_FILE is read for every request, so another program can
+        // replace a short-lived token while a long task runs.
+        let key = match env::var("RESTLOOP_API_KEY_FILE") {
+            Ok(p) if !p.is_empty() => {
+                std::fs::read_to_string(&p).map_err(|e| format!("cannot read {p}: {e}"))?
+            }
+            _ => env::var("RESTLOOP_API_KEY").unwrap_or_default(),
+        };
         let resp = agent
             .post(&url)
-            .header("Authorization", &format!("Bearer {key}"))
-            .send_json(body);
+            .header("Authorization", &format!("Bearer {}", key.trim()))
+            .send_json(&body);
         let (status, text) = match resp {
+            Ok(mut r) if r.status() == 200 && responses => {
+                match responses_reply(std::io::BufReader::new(r.body_mut().as_reader())) {
+                    Ok(reply) => return Ok(reply),
+                    Err(e) => (200, e),
+                }
+            }
             Ok(mut r) => (
                 r.status().as_u16(),
                 r.body_mut().read_to_string().unwrap_or_default(),
             ),
             Err(e) => (0, e.to_string()),
         };
-        if status == 200 {
+        if status == 200 && !responses {
             let reply: Value =
                 serde_json::from_str(&text).map_err(|e| format!("bad response: {e}: {text}"))?;
             if reply["choices"][0]["message"].is_object() {
@@ -335,13 +370,147 @@ fn complete(body: &Value) -> Result<Value, String> {
             200 => "no reply".to_string(),
             _ => format!("HTTP {status}"),
         };
-        if !(status == 0 || status == 200 || status == 429 || status >= 500) || attempt == 4 {
+        // Used-up credits or plan limits do not come back within the retries, nor does a
+        // failure the stream reports for another reason than the server or a limit (a
+        // refused or cut-off answer, a request too long for the context).
+        let spent = [
+            "insufficient_quota",
+            "subscription_sharing_usage_limit_exceeded",
+        ]
+        .iter()
+        .any(|k| text.contains(k));
+        let failed = responses
+            && status == 200
+            && !text.starts_with("the event stream")
+            && !["server_error", "rate_limit", "unavailable"]
+                .iter()
+                .any(|k| text.contains(k));
+        if !(status == 0 || status == 200 || status == 429 || status >= 500)
+            || spent
+            || failed
+            || attempt == 4
+        {
             return Err(format!("{what}: {text}"));
         }
         eprintln!("restloop: {what}, retrying");
         thread::sleep(Duration::from_secs(2 << attempt));
     }
     unreachable!()
+}
+
+/// A chat-completions request as a Responses API request. The first system message
+/// becomes the instructions; an assistant message goes back as its `output_items` (the
+/// model's output as it came, reasoning included) or, without them, as its text and calls.
+fn responses_request(body: &Value) -> Value {
+    let mut instructions = Value::Null;
+    let mut input = Vec::new();
+    for m in body["messages"].as_array().into_iter().flatten() {
+        match m["role"].as_str().unwrap_or("") {
+            "system" if instructions.is_null() && input.is_empty() => {
+                instructions = m["content"].clone()
+            }
+            "assistant" if m["output_items"].is_array() => {
+                input.extend(m["output_items"].as_array().into_iter().flatten().cloned())
+            }
+            "assistant" => {
+                if m["content"].as_str().is_some_and(|t| !t.is_empty()) {
+                    input.push(json!({"role": "assistant", "content": m["content"]}));
+                }
+                for c in m["tool_calls"].as_array().into_iter().flatten() {
+                    input.push(json!({"type": "function_call", "call_id": c["id"],
+                        "name": c["function"]["name"], "arguments": c["function"]["arguments"]}));
+                }
+            }
+            "tool" => input.push(json!({"type": "function_call_output",
+                "call_id": m["tool_call_id"], "output": m["content"]})),
+            _ => input.push(json!({"role": m["role"], "content": m["content"]})),
+        }
+    }
+    let tools: Vec<Value> = body["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|t| {
+            let mut f = t["function"].clone();
+            f["type"] = json!("function");
+            f
+        })
+        .collect();
+    // One key per system prompt (it names the working directory) keeps a conversation's
+    // requests on the same cache.
+    let mut h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(&instructions.to_string(), &mut h);
+    let mut r = json!({"model": body["model"], "input": input, "tools": tools, "store": false,
+        "stream": true, "include": ["reasoning.encrypted_content"],
+        "prompt_cache_key": format!("restloop-{:016x}", std::hash::Hasher::finish(&h))});
+    if !instructions.is_null() {
+        r["instructions"] = instructions;
+    }
+    r
+}
+
+/// Reads a Responses API event stream into a chat-completions reply.
+fn responses_reply(stream: impl BufRead) -> Result<Value, String> {
+    let mut items = Vec::new();
+    for line in stream.lines() {
+        let line = line.map_err(|e| format!("the event stream broke: {e}"))?;
+        let Some(data) = line.strip_prefix("data:") else {
+            continue;
+        };
+        let Ok(event) = serde_json::from_str::<Value>(data.trim()) else {
+            continue;
+        };
+        let kind = event["type"].as_str().unwrap_or("");
+        match kind {
+            "response.output_item.done" => items.push((
+                event["output_index"].as_u64().unwrap_or(u64::MAX),
+                event["item"].clone(),
+            )),
+            "response.completed" => {
+                let r = &event["response"];
+                // Items finish in any order; output_index (or the final output) has theirs.
+                items.sort_by_key(|(i, _)| *i);
+                let mut items: Vec<Value> = match r["output"].as_array() {
+                    Some(o) if !o.is_empty() => o.clone(),
+                    _ => items.into_iter().map(|(_, i)| i).collect(),
+                };
+                let (mut text, mut calls) = (String::new(), vec![]);
+                for i in &mut items {
+                    match i["type"].as_str().unwrap_or("") {
+                        "message" => {
+                            for c in i["content"].as_array().into_iter().flatten() {
+                                text += c["text"].as_str().or(c["refusal"].as_str()).unwrap_or("");
+                            }
+                        }
+                        "function_call" => calls
+                            .push(json!({"id": i["call_id"], "type": "function",
+                            "function": {"name": i["name"], "arguments": i["arguments"]}})),
+                        _ => continue,
+                    }
+                    // Without `store`, only reasoning items may keep their ids (as Codex sends them).
+                    i.as_object_mut().map(|o| o.remove("id"));
+                }
+                let mut msg = json!({"role": "assistant", "content": text, "output_items": items});
+                if !calls.is_empty() {
+                    msg["tool_calls"] = json!(calls);
+                }
+                let u = &r["usage"];
+                return Ok(json!({"choices": [{"message": msg}], "usage": {
+                    "prompt_tokens": u["input_tokens"], "completion_tokens": u["output_tokens"],
+                    "prompt_tokens_details": {"cached_tokens": u["input_tokens_details"]["cached_tokens"]}}}));
+            }
+            "response.failed" | "response.incomplete" | "error" => {
+                let r = &event["response"];
+                let detail = [&r["error"], &r["incomplete_details"]]
+                    .into_iter()
+                    .find(|d| !d.is_null())
+                    .unwrap_or(&event);
+                return Err(format!("{kind}: {detail}"));
+            }
+            _ => {}
+        }
+    }
+    Err("the event stream ended without a response".into())
 }
 
 /// The shell commands run in: sh, or on Windows Git Bash when installed (None: PowerShell).

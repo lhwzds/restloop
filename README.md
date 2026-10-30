@@ -3,7 +3,7 @@
 English | [中文](README_CN.md)
 
 A minimal coding-agent loop: it keeps working on your task so you can rest.
-Under 500 lines of Rust, packaged as a ~1.5 MB binary.
+About 650 lines of Rust, packaged as a ~1.5 MB binary.
 
 RestLoop is a personal open-source project. It gives a model one tool, `shell`,
 and runs it in a loop until the model stops calling the tool. The model reads,
@@ -11,7 +11,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 
 | | |
 |---|---|
-| Source | `src/main.rs`, under 500 lines |
+| Source | `src/main.rs`, about 650 lines |
 | Tests | `src/tests.rs`; CI runs them on macOS, Linux and Windows |
 | Dependencies | `ureq` (HTTPS), `serde_json` |
 | Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |
@@ -31,12 +31,16 @@ Or download a binary from [Releases](https://github.com/lhwzds/restloop/releases
 ## Use
 
 RestLoop talks to any OpenAI-compatible `/chat/completions` endpoint
-(OpenAI, Anthropic's compatibility endpoint, OpenRouter, GLM, DeepSeek, MiniMax, Ollama, ...).
+(OpenAI, Anthropic's compatibility endpoint, OpenRouter, GLM, DeepSeek, MiniMax, Ollama, ...),
+or to OpenAI's `/responses` endpoint with `RESTLOOP_WIRE_API=responses`.
 
 ```bash
 export RESTLOOP_BASE_URL=https://api.openai.com/v1   # default
 export RESTLOOP_API_KEY=...
 export RESTLOOP_MODEL=...
+export RESTLOOP_API_KEY_FILE=key.txt                 # optional: read the key from this file for every request
+export RESTLOOP_WIRE_API=responses                   # optional: the Responses API instead of chat completions
+export RESTLOOP_REASONING_EFFORT=low                 # optional: sent as the request's reasoning effort
 export RESTLOOP_TIMEOUT=120                          # seconds per command, optional
 export RESTLOOP_MAX_STEPS=100                        # steps per task (a reply and its commands), optional
 export RESTLOOP_LOG_USAGE=1                          # token usage of each model reply on stderr, optional
@@ -57,11 +61,21 @@ from 5 timeouts to 1.
 `RESTLOOP_SESSION` keeps a conversation across runs. If the file exists, RestLoop
 continues the conversation in it with the new task; after every step it writes
 the conversation back (`{"version": 1, "messages": [...]}`, exactly as the next
-request will send it). Running again with the same file resumes; copying the file
-first forks. The saved system prompt is reused unchanged, so a provider's prompt
-cache still matches; a resumed run's `RESTLOOP_DEADLINE` is given with the new task.
+request will send it; with the Responses API, before its conversion). Running again
+with the same file resumes; copying the file first forks. The saved system prompt is
+reused unchanged, so a provider's prompt cache still matches; a resumed run's
+`RESTLOOP_DEADLINE` is given with the new task.
 Use a session file for one run at a time. The file may be edited between runs (trimmed,
 rewritten, merged); any valid chat messages under version 1 load.
+
+With `RESTLOOP_WIRE_API=responses` the conversation is still kept, and saved, as chat
+messages, and each request turns it into Responses input (`store: false`, streamed). An
+assistant message also keeps the model's output as it came, encrypted reasoning
+included, in `output_items`, and that is what goes back to the model; a message without
+`output_items` goes back as its text and tool calls (so after editing one, remove them).
+`RESTLOOP_API_KEY_FILE` suits short-lived tokens, such as those of Sign in with ChatGPT:
+another program refreshes the file, RestLoop reads it for every request. RestLoop does
+not sign in or refresh tokens itself.
 
 ## How it works
 
@@ -75,7 +89,9 @@ rewritten, merged); any valid chat messages under version 1 load.
    (`RESTLOOP_MAX_STEPS`).
 
 A request that fails with 429, 5xx, a network error or an HTTP 200 without a reply
-is tried up to 5 times in all.
+is tried up to 5 times in all, unless the error says the credits or plan limit are used up.
+A Responses stream that breaks off is tried again; one that reports a failure only for a
+server error, a rate limit or a plan that is briefly unavailable.
 When the conversation no longer fits the model's context window, the older half
 of the command outputs is cut down to its first line plus a note (and old reasoning dropped)
 before the request is sent again.

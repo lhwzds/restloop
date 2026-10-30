@@ -54,6 +54,12 @@ fn trim_thinking_keeps_the_last_two_replies() {
     assert_eq!(m[3]["content"], "<think>t3</think>a3");
     assert_eq!(m[3]["reasoning_content"], "r");
     assert_eq!(trim_thinking(&mut m, 2), 0);
+    // Of the Responses API's output items only the reasoning is dropped.
+    let items = json!([{"type": "reasoning"}, {"type": "message", "phase": "commentary"}]);
+    let mut m = vec![json!({"role": "assistant", "content": "", "output_items": items})];
+    assert_eq!(trim_thinking(&mut m, 0), 1);
+    assert_eq!(m[0]["output_items"], json!([items[1]]));
+    assert_eq!(trim_thinking(&mut m, 0), 0);
 }
 
 #[test]
@@ -87,8 +93,9 @@ fn shell_does_not_wait_for_a_background_child_holding_the_output() {
     assert!(t.elapsed() < Duration::from_secs(10));
 }
 
-/// Answers chat-completion requests on a local port with `replies` in order and
-/// keeps each request body.
+/// Answers requests on a local port with `replies` in order (a JSON string is sent as
+/// it is, as an event stream) and keeps each request body, with its Authorization
+/// header under "auth".
 fn serve(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -98,7 +105,7 @@ fn serve(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>) {
         for ((status, reply), stream) in replies.into_iter().zip(listener.incoming()) {
             let mut stream = stream.unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut len = 0;
+            let (mut len, mut auth) = (0, String::new());
             loop {
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
@@ -108,15 +115,21 @@ fn serve(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>) {
                 if let Some(v) = line.to_lowercase().strip_prefix("content-length:") {
                     len = v.trim().parse().unwrap();
                 }
+                if let Some(v) = line.to_lowercase().strip_prefix("authorization:") {
+                    auth = v.trim().to_string();
+                }
             }
             let mut body = vec![0; len];
             reader.read_exact(&mut body).unwrap();
-            seen.lock()
-                .unwrap()
-                .push(serde_json::from_slice(&body).unwrap());
-            let text = reply.to_string();
+            let mut body: Value = serde_json::from_slice(&body).unwrap();
+            body["auth"] = json!(auth);
+            seen.lock().unwrap().push(body);
+            let (kind, text) = match reply {
+                Value::String(s) => ("text/event-stream", s),
+                r => ("application/json", r.to_string()),
+            };
             let head = format!(
-                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 {status} X\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 text.len()
             );
             stream.write_all((head + &text).as_bytes()).unwrap();
@@ -212,4 +225,146 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     run("m", &mut m).unwrap();
     assert_eq!(bodies.lock().unwrap().len(), 2);
     assert_eq!(m[1]["content"], "third");
+
+    // The Responses API: a shell call with encrypted reasoning, then the final reply.
+    // The output goes back as it came, in order, without the ids of messages and calls;
+    // the key is read from its file.
+    let event = |e: Value| format!("event: x\ndata: {e}\n\n");
+    let item = |n: u64, i: Value| {
+        event(json!({"type": "response.output_item.done", "output_index": n, "item": i}))
+    };
+    // The items finish out of order; output_index puts them back.
+    let call = [
+        item(1, json!({"type": "message", "id": "msg_1", "role": "assistant", "phase": "commentary",
+            "content": [{"type": "output_text", "text": "looking"}]})),
+        item(0, json!({"type": "reasoning", "id": "rs_1", "encrypted_content": "e1", "summary": []})),
+        item(3, json!({"type": "function_call", "id": "fc_1", "call_id": "c1", "name": "shell",
+            "arguments": "{\"command\":\"echo hi\"}"})),
+        item(2, json!({"type": "reasoning", "id": "rs_2", "encrypted_content": "e2", "summary": []})),
+        event(json!({"type": "response.completed", "response": {"output": [], "usage":
+            {"input_tokens": 10, "output_tokens": 5, "input_tokens_details": {"cached_tokens": 4}}}})),
+    ]
+    .concat();
+    let done = [
+        item(
+            0,
+            json!({"type": "message", "role": "assistant",
+            "content": [{"type": "refusal", "refusal": "no"}]}),
+        ),
+        event(json!({"type": "response.completed", "response": {"output": []}})),
+        "data: [DONE]\n\n".to_string(),
+    ]
+    .concat();
+    let failed = |code: &str| {
+        json!(event(
+            json!({"type": "response.failed", "response": {"error": {"code": code}}})
+        ))
+    };
+    // A plan that is briefly unavailable is tried again; the top-level error event
+    // carries its code at the top.
+    let unavailable = json!(event(
+        json!({"type": "error", "code": "subscription_sharing_user_unavailable"})
+    ));
+    let (url, bodies) = serve(vec![
+        (200, json!(call)),
+        (200, failed("server_error")),
+        (200, unavailable),
+        (200, failed("context_length_exceeded")),
+        (200, json!(done)),
+    ]);
+    let key = env::temp_dir().join(format!("restloop-key-{}", std::process::id()));
+    std::fs::write(&key, "tok1\n").unwrap();
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_WIRE_API", "responses");
+        env::set_var("RESTLOOP_API_KEY_FILE", &key);
+        env::set_var("RESTLOOP_REASONING_EFFORT", "low");
+    }
+    let mut m = vec![
+        json!({"role": "system", "content": "be brief"}),
+        json!({"role": "user", "content": "four"}),
+    ];
+    run("m", &mut m).unwrap();
+    let sent = bodies.lock().unwrap().clone();
+    assert_eq!(sent.len(), 5);
+    assert_eq!(sent[0]["auth"], "bearer tok1");
+    assert_eq!(sent[0]["instructions"], "be brief");
+    assert_eq!(
+        sent[0]["input"],
+        json!([{"role": "user", "content": "four"}])
+    );
+    assert_eq!(sent[0]["reasoning"], json!({"effort": "low"}));
+    assert_eq!(
+        (&sent[0]["store"], &sent[0]["stream"]),
+        (&json!(false), &json!(true))
+    );
+    assert_eq!(sent[0]["tools"][0]["name"], "shell");
+    assert_eq!(sent[0]["prompt_cache_key"], sent[4]["prompt_cache_key"]);
+    // A server error is tried again with the same request.
+    assert_eq!(sent[1]["input"], sent[2]["input"]);
+    assert_eq!(sent[2]["input"], sent[3]["input"]);
+    let input = sent[2]["input"].as_array().unwrap();
+    let kinds: Vec<_> = input
+        .iter()
+        .map(|i| i["type"].as_str().unwrap_or(""))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "",
+            "reasoning",
+            "message",
+            "reasoning",
+            "function_call",
+            "function_call_output"
+        ]
+    );
+    assert_eq!(
+        (&input[1]["id"], &input[1]["encrypted_content"]),
+        (&json!("rs_1"), &json!("e1"))
+    );
+    assert_eq!(
+        (&input[2]["id"], &input[2]["phase"]),
+        (&Value::Null, &json!("commentary"))
+    );
+    assert_eq!(
+        (&input[4]["id"], &input[4]["call_id"]),
+        (&Value::Null, &json!("c1"))
+    );
+    assert!(input[5]["output"].as_str().unwrap().contains("hi"));
+    // A request too long for the context gets its old command output cut, as with chat.
+    assert_eq!(
+        sent[4]["input"][5]["output"],
+        "exit: 0\n[output removed to fit the context window]"
+    );
+    assert_eq!(
+        (&m[2]["content"], &m[2]["tool_calls"][0]["id"]),
+        (&json!("looking"), &json!("c1"))
+    );
+    assert_eq!(m[4]["content"], "no");
+
+    // A used-up plan, an answer cut off by a content filter or an invalid request is
+    // reported at once.
+    let limit = json!({"error": {"code": "subscription_sharing_usage_limit_exceeded"}});
+    let filtered = event(json!({"type": "response.incomplete",
+        "response": {"incomplete_details": {"reason": "content_filter"}}}));
+    let invalid = event(json!({"type": "error", "code": "invalid_request_error"}));
+    for (reply, start) in [
+        ((429, limit), "HTTP 429: "),
+        ((200, json!(filtered)), "no reply: response.incomplete"),
+        ((200, json!(invalid)), "no reply: error: "),
+    ] {
+        let (url, bodies) = serve(vec![reply]);
+        unsafe { env::set_var("RESTLOOP_BASE_URL", &url) };
+        let mut m = vec![json!({"role": "user", "content": "five"})];
+        let e = run("m", &mut m).unwrap_err();
+        assert!(e.starts_with(start), "{e}");
+        assert_eq!(bodies.lock().unwrap().len(), 1);
+    }
+
+    // A key file that cannot be read stops the run before any request.
+    std::fs::remove_file(&key).unwrap();
+    let mut m = vec![json!({"role": "user", "content": "six"})];
+    let e = run("m", &mut m).unwrap_err();
+    assert!(e.starts_with("cannot read "), "{e}");
 }
