@@ -3,7 +3,7 @@
 [English](README.md) | 中文
 
 一个极简的 coding agent 循环：它替你持续推进任务，你可以去休息。
-不到 500 行 Rust，打包成约 1.5 MB 的二进制。
+约 650 行 Rust，打包成约 1.5 MB 的二进制。
 
 RestLoop 是一个个人开源项目。它只给模型一个工具 `shell`，
 并循环执行，直到模型不再调用这个工具。模型通过 shell 命令读、写、编辑文件，
@@ -11,7 +11,7 @@ RestLoop 是一个个人开源项目。它只给模型一个工具 `shell`，
 
 | | |
 |---|---|
-| 源码 | `src/main.rs`，不到 500 行 |
+| 源码 | `src/main.rs`，约 650 行 |
 | 测试 | `src/tests.rs`；CI 在 macOS、Linux 和 Windows 上运行 |
 | 依赖 | `ureq`（HTTPS）、`serde_json` |
 | 二进制（release） | macOS arm64 1.3 MB，Linux x86_64 1.9 MB（静态），Windows x86_64 1.5 MB |
@@ -31,12 +31,16 @@ cargo install --git https://github.com/lhwzds/restloop
 ## 使用
 
 RestLoop 可以对接任何 OpenAI 兼容的 `/chat/completions` 端点
-（OpenAI、Anthropic 的兼容端点、OpenRouter、GLM、DeepSeek、MiniMax、Ollama 等）。
+（OpenAI、Anthropic 的兼容端点、OpenRouter、GLM、DeepSeek、MiniMax、Ollama 等），
+设置 `RESTLOOP_WIRE_API=responses` 时也可以对接 OpenAI 的 `/responses` 端点。
 
 ```bash
 export RESTLOOP_BASE_URL=https://api.openai.com/v1   # 默认值
 export RESTLOOP_API_KEY=...
 export RESTLOOP_MODEL=...
+export RESTLOOP_API_KEY_FILE=key.txt                 # 可选：每次请求都从这个文件读取 key
+export RESTLOOP_WIRE_API=responses                   # 可选：用 Responses API 代替 chat completions
+export RESTLOOP_REASONING_EFFORT=low                 # 可选：作为请求的推理强度发送
 export RESTLOOP_TIMEOUT=120                          # 每条命令的秒数，可选
 export RESTLOOP_MAX_STEPS=100                        # 每个任务的步数（一次回复及其命令），可选
 export RESTLOOP_LOG_USAGE=1                          # 在 stderr 上输出每条模型回复的 token 用量，可选
@@ -56,11 +60,18 @@ assistant 的文本输出到 stdout；命令及其输出写入 stderr。
 
 `RESTLOOP_SESSION` 让对话跨运行保留。如果文件存在，RestLoop 会带着新任务
 继续其中的对话；每一步之后都会把对话写回去（`{"version": 1, "messages": [...]}`，
-与下一次请求要发送的内容完全一致）。用同一个文件再次运行即可恢复；先复制文件
-就是分叉。保存的系统 prompt 原样复用，因此服务商的 prompt 缓存仍能命中；恢复运行时，
-`RESTLOOP_DEADLINE` 会随新任务一起告知模型。
+与下一次请求要发送的内容完全一致；使用 Responses API 时，是转换之前的内容）。用同一个文件
+再次运行即可恢复；先复制文件就是分叉。保存的系统 prompt 原样复用，因此服务商的 prompt
+缓存仍能命中；恢复运行时，`RESTLOOP_DEADLINE` 会随新任务一起告知模型。
 同一时间一个 session 文件只用于一个运行。可以在两次运行之间编辑该文件（裁剪、
 改写、合并）；只要是 version 1 下合法的 chat 消息都能加载。
+
+设置 `RESTLOOP_WIRE_API=responses` 时，对话仍以 chat 消息的形式保存在内存和文件中，
+每次请求时再转换成 Responses 的输入（`store: false`，流式）。assistant 消息还会在
+`output_items` 中原样保留模型的输出（包括加密的推理内容），发回给模型的正是这些（只去掉 message 和 function_call 的 id 字段）；
+没有 `output_items` 的消息则以其文本和工具调用发回（所以编辑某条消息后，要删掉它们）。
+`RESTLOOP_API_KEY_FILE` 适合短期 token，例如 Sign in with ChatGPT 的 token：
+由另一个程序刷新该文件，RestLoop 每次请求都会读取它。RestLoop 自己不负责登录，也不刷新 token。
 
 ## 工作原理
 
@@ -74,7 +85,8 @@ assistant 的文本输出到 stdout；命令及其输出写入 stderr。
    （`RESTLOOP_MAX_STEPS`）。
 
 因 429、5xx、网络错误或没有回复的 HTTP 200 而失败的请求，
-总共最多尝试 5 次。
+总共最多尝试 5 次，除非错误表明额度或套餐限额已经用完。
+Responses 事件流中途断开时会重试；流中报告了失败时，只有服务器错误、限流或套餐暂时不可用才会重试。
 当对话超出模型的上下文窗口时，较早的一半命令输出会被缩减为第一行加一条说明
 （并丢弃旧的推理内容），然后重新发送请求。
 

@@ -10,24 +10,24 @@ title: Building, releasing and contributing
 
 Tests live in `src/tests.rs` and run with `cargo test`; `.github/workflows/ci.yml` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and the tests on macOS, Linux and Windows for every push to `main` and every pull request. Run the same three commands before opening one.
 
-<sub>Sources: [Cargo.toml:1-18](../Cargo.toml#L1-L18) · [main.rs:408-415](../src/main.rs#L408-L415) · [ci.yml:1-25](../.github/workflows/ci.yml#L1-L25)</sub>
+<sub>Sources: [Cargo.toml:1-18](../Cargo.toml#L1-L18) · [main.rs:577-584](../src/main.rs#L577-L584) · [ci.yml:1-25](../.github/workflows/ci.yml#L1-L25)</sub>
 
 ## What the tests cover
 
-The unit tests pin the behaviour the other pages describe: `too_long()` accepts the recorded provider wordings and rejects near misses (an overlong `tool_call_id`, a 500, a network error); `drop_old_output()` halves the remaining outputs until it returns 0; `trim_thinking()` spares the last two replies and empties, not removes, `reasoning_content`; `truncate()` keeps head and tail. The `shell()` tests run on each CI platform and check the exit line with both streams, a kill at the timeout, and that a background `sleep 30 &` does not hold the command open.
+The unit tests pin what other pages describe: `too_long()` accepts the recorded provider wordings and rejects near misses (an overlong `tool_call_id`, a 500, a network error); `drop_old_output()` halves the remaining outputs until it returns 0; `trim_thinking()` spares the last two replies, empties rather than removes `reasoning_content`, and drops only the `reasoning` items of `output_items`; `truncate()` keeps head and tail. The `shell()` tests run on each CI platform: the exit line with both streams, a kill at the timeout, and a background `sleep 30 &` not blocking.
 
-One end-to-end test starts a local HTTP server (`serve()`) that replays canned replies, and drives `run()` through a tool call, a context-overflow 400 and its retry, then resumes from the saved session and checks that the same messages are sent and no temporary file is left. It also checks that an HTTP 200 without `choices` is retried rather than taken as a final reply. It is the only test that touches `RESTLOOP_*` variables; it clears them and any `*_PROXY` first, so your shell's settings cannot leak in.
+One end-to-end test drives `run()` against a local server (`serve()`) replaying canned replies: a tool call, a context-overflow 400 and its retry, a resume from the saved session, a retried 200 without `choices`. Then, over the Responses API: the key file, output items sent back in order (message and function-call ids dropped; reasoning ids and `call_id` kept), retried server and unavailable-plan failures, overflow recovery, and immediate failure for a used-up plan, a content filter, an invalid request or an unreadable key file. Only this test touches `RESTLOOP_*` variables; it clears them and any `*_PROXY` first.
 
-<sub>Sources: [tests.rs:8-88](../src/tests.rs#L8-L88) · [tests.rs:90-126](../src/tests.rs#L90-L126) · [tests.rs:128-215](../src/tests.rs#L128-L215) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
+<sub>Sources: [tests.rs:8-97](../src/tests.rs#L8-L97) · [tests.rs:96-139](../src/tests.rs#L96-L139) · [tests.rs:141-370](../src/tests.rs#L141-L370) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
 ## Changing the loop
 
-The project's history suggests a few conventions:
+Conventions the history suggests:
 
 - **Options are environment variables with the old behaviour as default.** Read numbers with `env_num` so an invalid value falls back to the default, and add the variable to the `--help` text in `main()` and to the README.
 - **Keep the model-facing surface fixed** (see [Overview](01-overview.md)). Changes to `system_prompt()` or the tool schema should come with benchmark evidence.
 - **Keep the prompt prefix stable.** Anything that rewrites earlier messages breaks provider prompt caching; RestLoop does it only when the provider reports an overflow. A threshold-based trim was removed after an A/B showed no benefit (`f09603f4`).
-- **Keep the program in one file with two dependencies.** The program is `src/main.rs`; its tests live in `src/tests.rs`. The size and readability of the program is the point of the project.
+- **Keep the program in one file with two dependencies.** The program is `src/main.rs`; its tests live in `src/tests.rs`. Its size and readability are the point.
 
 <sub>Sources: [main.rs:118-124](../src/main.rs#L118-L124) · [tests.rs:1-6](../src/tests.rs#L1-L6) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
@@ -47,6 +47,6 @@ Running the workflow by hand (`workflow_dispatch`) builds and checksums but publ
 
 The npm package contains no binary. `npm/bin/restloop.js` looks up `"<platform> <arch>"` in `checksums.json`, and on first run downloads that asset from the `v<version>` GitHub release, verifies its SHA-256, and stores it next to itself (temporary file and rename). Later runs skip the download. Either way the launcher runs the binary, passing arguments and stdio through and returning its exit status.
 
-Publishing is manual because npm trusted publishing would need an account setting, so npm stays out of the workflow (`a21f7c21`): after the GitHub release, run `node npm/stamp.js X.Y.Z SHA256SUMS`, which sets the package version and rewrites `checksums.json` for five platforms, then `npm publish --access public` from `npm/`. At this commit `checksums.json` holds the five v0.2.0 entries: `darwin arm64`, `darwin x64`, `linux x64`, `linux arm64` (musl) and `win32 x64`.
+Publishing is manual, since npm trusted publishing would need an account setting (`a21f7c21`): after the GitHub release, run `node npm/stamp.js X.Y.Z SHA256SUMS`, which sets the package version and rewrites `checksums.json` for five platforms, then `npm publish --access public` from `npm/`. At this commit `checksums.json` holds the five v0.2.0 entries: `darwin arm64`, `darwin x64`, `linux x64`, `linux arm64` (musl) and `win32 x64`.
 
 <sub>Sources: [restloop.js:1-61](../npm/bin/restloop.js#L1-L61) · [stamp.js:1-31](../npm/stamp.js#L1-L31) · [checksums.json](../npm/checksums.json) · [release.yml:5-6](../.github/workflows/release.yml#L5-L6) · [commit a21f7c21](https://github.com/lhwzds/restloop/commit/a21f7c21)</sub>
