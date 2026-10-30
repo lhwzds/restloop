@@ -17,7 +17,7 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage per request on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_TRIM_THINKING_AT (prompt tokens; past it, keep reasoning of the last 2 replies only),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
+            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage per request on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
         );
         return;
     }
@@ -131,7 +131,6 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
     }}]);
     let max_steps = env_num("RESTLOOP_MAX_STEPS", MAX_STEPS);
     let log_usage = env::var("RESTLOOP_LOG_USAGE").is_ok_and(|v| v == "1");
-    let trim_at = env_num("RESTLOOP_TRIM_THINKING_AT", 0);
     // RESTLOOP_LAST_MESSAGE: the final reply goes to this file. Remove an old one first
     // so a run that stops early cannot leave the previous run's answer behind.
     let last_message = env::var("RESTLOOP_LAST_MESSAGE").ok();
@@ -173,14 +172,6 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
             keep["tool_calls"] = json!(calls);
         }
         messages.push(keep);
-        // Old reasoning is most of the context growth. Past the threshold, keep it only
-        // for the last two replies; trimming in bursts keeps the cached prefix stable.
-        if trim_at > 0 && reply["usage"]["prompt_tokens"].as_u64().unwrap_or(0) > trim_at {
-            let n = trim_thinking(messages, 2);
-            if n > 0 {
-                eprintln!("restloop: dropped the reasoning of {n} older replies");
-            }
-        }
         if calls.is_empty() {
             save(messages);
             if let Some(path) = &last_message {
