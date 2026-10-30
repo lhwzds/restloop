@@ -13,7 +13,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 | Tests | `src/tests.rs`; CI runs them on macOS, Linux and Windows |
 | Dependencies | `ureq` (HTTPS), `serde_json` |
 | Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |
-| Storage | none by default: no database, no config file; a session file only when `RESTLOOP_SESSION` is set |
+| Storage | none by default: no database, no config file; files only when `RESTLOOP_SESSION` or `RESTLOOP_LAST_MESSAGE` is set |
 
 ## Install
 
@@ -36,7 +36,7 @@ export RESTLOOP_BASE_URL=https://api.openai.com/v1   # default
 export RESTLOOP_API_KEY=...
 export RESTLOOP_MODEL=...
 export RESTLOOP_TIMEOUT=120                          # seconds per command, optional
-export RESTLOOP_MAX_STEPS=100                        # model calls per task, optional
+export RESTLOOP_MAX_STEPS=100                        # steps per task (a reply and its commands), optional
 export RESTLOOP_LOG_USAGE=1                          # token usage per request on stderr, optional
 export RESTLOOP_DEADLINE=1800                        # seconds for the whole task, optional; the model sees the time used
 export RESTLOOP_LAST_MESSAGE=last.txt                # file that receives the final reply, optional
@@ -72,7 +72,8 @@ rewritten, merged); any valid chat messages under version 1 load.
 3. Repeat until the model replies without a tool call, or after 100 steps
    (`RESTLOOP_MAX_STEPS`).
 
-Requests that fail with 429, 5xx or a network error are retried up to 5 times.
+A request that fails with 429, 5xx, a network error or an HTTP 200 without a reply
+is tried up to 5 times in all.
 When the conversation no longer fits the model's context window, the older half
 of the command outputs is cut down to its exit line (and old reasoning dropped)
 before the request is sent again.
