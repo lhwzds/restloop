@@ -4,7 +4,9 @@ title: restloop — All pages
 
 # restloop
 
-These docs go one level below the README for RestLoop, a single-file Rust agent loop that gives a model one `shell` tool. They describe v0.2.0 at commit f09603f4. Compared with v0.1.0 it adds context-overflow recovery, `RESTLOOP_SESSION`, a test suite with CI and retries of HTTP 200 responses without a reply, and drops `RESTLOOP_TRIM_THINKING_AT`. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
+<sub>**English** · [中文](zh/all.md)</sub>
+
+These docs go one level below the README for RestLoop, a single-file Rust agent loop that gives a model one `shell` tool. They describe v0.2.0. Compared with v0.1.0 it adds context-overflow recovery, `RESTLOOP_SESSION`, a test suite with CI and retries of HTTP 200 responses without a reply, and drops `RESTLOOP_TRIM_THINKING_AT`. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
 
 <a id="overview"></a>
 
@@ -12,7 +14,7 @@ These docs go one level below the README for RestLoop, a single-file Rust agent 
 
 RestLoop is a coding agent reduced to its loop: it sends a conversation and one tool, `shell`, to an OpenAI-compatible `/chat/completions` endpoint, runs every command the model asks for, sends back the output, and stops when the model answers without a tool call. The whole program is `src/main.rs`; its only dependencies are `ureq` for HTTPS and `serde_json`.
 
-It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a daemon, a runner and an executable-skills system. Commit `33511748` replaced all of that with one file and no storage, and `cad33d13` renamed the result RestLoop and restarted versioning at 0.1.0. Most later features (step limit, time budget, usage logging) were added in response to benchmark runs, mostly Terminal-Bench, which is why each one is an opt-in environment variable rather than a changed default.
+It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a daemon, a runner and an executable-skills system. Commit `33511748` replaced all of that with one file and no storage, and `cad33d13` renamed the result RestLoop and restarted versioning at 0.1.0. Most later features (a configurable step limit, the time budget, usage logging) were added in response to benchmark runs, mostly Terminal-Bench, and each is an environment variable: the time budget and usage logging stay off unless set, and the step limit defaults to 100 steps.
 
 <sub>Sources: [main.rs:1-13](../src/main.rs#L1-L13) · [Cargo.toml:1-11](../Cargo.toml#L1-L11) · [commit 33511748](https://github.com/lhwzds/restloop/commit/33511748) · [commit cad33d13](https://github.com/lhwzds/restloop/commit/cad33d13)</sub>
 
@@ -38,7 +40,7 @@ restloop "make the failing test pass"
 
 For other providers set `RESTLOOP_BASE_URL` to the part before `/chat/completions`. Exit codes and every option are described in [Usage and configuration](#usage).
 
-<sub>Sources: [README.md:17-24](../README.md#L17-L24) · [README.md:29-37](../README.md#L29-L37) · [main.rs:305-307](../src/main.rs#L305-L307)</sub>
+<sub>Sources: [README.md:19-26](../README.md#L19-L26) · [README.md:31-39](../README.md#L31-L39) · [main.rs:305-307](../src/main.rs#L305-L307)</sub>
 
 <a id="usage"></a>
 
@@ -67,9 +69,9 @@ Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SE
 | `RESTLOOP_API_KEY` | empty | sent as `Authorization: Bearer <key>` |
 | `RESTLOOP_BASE_URL` | `https://api.openai.com/v1` | `/chat/completions` is appended; a trailing `/` is ignored |
 | `RESTLOOP_TIMEOUT` | `120` | seconds a single command may run |
-| `RESTLOOP_MAX_STEPS` | `100` | model calls per task |
+| `RESTLOOP_MAX_STEPS` | `100` | steps per task: one model reply and its commands (retries and overflow recovery stay within the step) |
 | `RESTLOOP_DEADLINE` | unset | seconds for the whole task; see [How it works](#how-it-works) |
-| `RESTLOOP_LOG_USAGE` | unset | `1` logs token usage per request on stderr |
+| `RESTLOOP_LOG_USAGE` | unset | `1` logs the token usage of each model reply on stderr |
 | `RESTLOOP_LAST_MESSAGE` | unset | file that receives the final reply |
 | `RESTLOOP_SESSION` | unset | conversation file to resume and save |
 
@@ -81,7 +83,7 @@ Numeric values that do not parse as an unsigned integer silently fall back to th
 
 stdout carries only the model's text: every non-empty reply is printed, trimmed, including the short comments a model writes alongside tool calls. There is no separator between steps, so a script that needs only the final answer should use `RESTLOOP_LAST_MESSAGE`.
 
-stderr carries everything else: each command as a dimmed `$ <command>`, then its duration and the first 10 lines of its output, retry and context-overflow notices, and with `RESTLOOP_LOG_USAGE=1` one line per model call:
+stderr carries everything else: each command as a dimmed `$ <command>`, then its duration and the first 10 lines of its output, retry and context-overflow notices, and with `RESTLOOP_LOG_USAGE=1` one line per step that gets a reply, from that reply's usage (retried requests are not logged):
 
 ```
 usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapsed=41s
@@ -109,13 +111,13 @@ With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, wh
 
 Run again with the same path to resume; copy the file first to fork. The saved system prompt is reused unchanged. With `RESTLOOP_DEADLINE`, a resumed task gets `[You have Ns in total for this request; the time used in tool results counts from now.]` appended. The file is replaced after every step through a `<path>.<pid>.tmp` rename, so after a kill it holds the last complete step. Use one file per run at a time: concurrent runs never corrupt it, but the last writer wins.
 
-<sub>Sources: [main.rs:28-29](../src/main.rs#L28-L29) · [main.rs:63-80](../src/main.rs#L63-L80) · [main.rs:217-230](../src/main.rs#L217-L230) · [README.md:55-62](../README.md#L55-L62) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>
+<sub>Sources: [main.rs:28-29](../src/main.rs#L28-L29) · [main.rs:63-80](../src/main.rs#L63-L80) · [main.rs:217-230](../src/main.rs#L217-L230) · [README.md:57-64](../README.md#L57-L64) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>
 
 <a id="how-it-works"></a>
 
 ## How it works
 
-Everything happens in `run()`: one iteration is one model call, followed by the commands it requested.
+Everything happens in `run()`: one iteration (a step) is one model reply plus the commands it requested.
 
 ```mermaid
 flowchart TD
@@ -135,15 +137,15 @@ flowchart TD
 
 The first message is the system prompt from `system_prompt()`: the agent's instructions plus the OS, the shell (`sh`, `bash (Git Bash)` or `PowerShell`), the working directory, the command timeout and, with a deadline, the total budget. Then come user tasks, and for every model reply an assistant message that keeps only `content`, `tool_calls` and, when the provider returns it, `reasoning_content`.
 
-Each tool call gets one `tool` message with the matching `tool_call_id`. If the arguments are not JSON with a `command` string, the content is an error that quotes the arguments, so the model can correct itself instead of the run failing. Calls run sequentially in the order the model listed them.
+Each tool call gets one `tool` message with the matching `tool_call_id`. If the arguments are not JSON with a `command` string, the content is an error that quotes the arguments, so the model can correct itself instead of the run failing. Calls run one at a time, in the listed order.
 
 <sub>Sources: [main.rs:82-99](../src/main.rs#L82-L99) · [main.rs:161-174](../src/main.rs#L161-L174) · [main.rs:186-211](../src/main.rs#L186-L211)</sub>
 
 ### Requests and retries
 
-`complete()` posts `{"model", "messages", "tools"}` and nothing else: no sampling parameters, no token limit, no streaming, so provider defaults apply. Each attempt may take up to 600 s (a per-request global timeout; retries are separate).
+`complete()` posts `{"model", "messages", "tools"}` and nothing else (no sampling parameters, token limit or streaming), so provider defaults apply. Each attempt may take up to 600 s.
 
-Network errors, HTTP 429, HTTP 5xx and, since `333b7b64`, an HTTP 200 without `choices[0].message` are retried, five attempts in all, sleeping 2, 4, 8 and 16 s between them and printing `restloop: <what>, retrying`. The 200 case covers MiniMax, which reports some errors that way; it once ended the run as an empty final reply with exit 0, and now ends with `restloop: no reply: <body>` and exit 1. Any other status, or the fifth failure, becomes `HTTP <status>: <body>` (or `request failed: ...`), ending the task with status 1. A 200 whose body is not JSON fails at once with `bad response`. Overflow detection reads the body kept in the error.
+Network errors, HTTP 429, HTTP 5xx and, since `333b7b64`, an HTTP 200 without `choices[0].message` are retried, five attempts in all, sleeping 2, 4, 8 and 16 s between them and printing `restloop: <what>, retrying`. The 200 case covers MiniMax, which reports some errors that way and once ended the run as an empty final reply. Any other status, or the fifth failure, becomes `HTTP <status>: <body>` (or `request failed: ...`, `no reply: ...`) and fails the task: a run with a task argument exits 1, while stdin mode reports it and reads the next line. A 200 whose body is not JSON fails at once with `bad response`. Overflow detection reads the body kept in the error.
 
 <sub>Sources: [main.rs:304-346](../src/main.rs#L304-L346) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
@@ -151,7 +153,7 @@ Network errors, HTTP 429, HTTP 5xx and, since `333b7b64`, an HTTP 200 without `c
 
 Before `21f3c1dc`, a context overflow ended the run. `too_long()` recognises it: the status is 400 or 413 and the body contains a phrase providers use (`context_length_exceeded`, "maximum context length", "context window exceeds", "prompt is too long", "exceeds the available context size"). Commit `04004c68` narrowed this from looser words like "too long", because an unrelated 400 (an overlong `tool_call_id`) could trigger history cuts.
 
-On a match, `drop_old_output()` takes the `tool` messages not yet shortened, replaces the older half (rounded up) with their first line, the `exit:` line, plus `[output removed to fit the context window]`, and empties old reasoning with `trim_thinking()` (below), its only caller. The request is retried. Each retry halves what is left, and once nothing more can change, the overflow error is returned. Commands and visible replies are never removed, so the model still knows what it did.
+On a match, `drop_old_output()` takes the `tool` messages not yet shortened, replaces the older half (rounded up) with their first line (normally the `exit:` line) plus `[output removed to fit the context window]`, and empties old reasoning with `trim_thinking()` (below), its only caller. The request is retried. Each retry halves what is left, and once nothing more can change, the overflow error is returned. Commands and visible replies are never removed, so the model still knows what it did.
 
 <sub>Sources: [main.rs:141-150](../src/main.rs#L141-L150) · [main.rs:259-302](../src/main.rs#L259-L302) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
@@ -159,7 +161,7 @@ On a match, `drop_old_output()` takes the `tool` messages not yet shortened, rep
 
 `trim_thinking()` empties the reasoning of every assistant message except the last two: `reasoning_content` becomes `""` and any text up to `</think>` is cut from `content`. Since `70f40924` the key is kept with an empty value rather than deleted, because DeepSeek's thinking mode (deepseek-flash) answers HTTP 400 when an assistant message in a tool turn has lost the field, but accepts an empty string. A message already emptied does not count as changed, so repeated overflow retries terminate.
 
-In v0.1.0 it also ran whenever the prompt passed a token threshold set by RESTLOOP_TRIM_THINKING_AT; commit `f09603f4` removed that switch because a Terminal-Bench A/B showed no benefit. Callers can instead rewrite the session file between runs.
+In v0.1.0 it also ran past a token threshold (RESTLOOP_TRIM_THINKING_AT); `f09603f4` removed that because a Terminal-Bench A/B showed no benefit. Callers can rewrite the session file between runs.
 
 <sub>Sources: [main.rs:233-257](../src/main.rs#L233-L257) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
@@ -167,11 +169,11 @@ In v0.1.0 it also ran whenever the prompt passed a token threshold set by RESTLO
 
 In Terminal-Bench, tasks that hit the limit spent it on installs and long sweeps without knowing the budget (`f9d3b4f0`). `RESTLOOP_DEADLINE` does three things:
 
-1. A new conversation's system prompt ends with `You have Ns in total for this task; each tool result ends with the time used so far.` A resumed session keeps its old system prompt, so the new task instead carries a differently worded sentence (quoted in [Usage and configuration](#usage)), and the clock restarts at this process's start.
-2. Each tool result ends with `[time used: Ns of Ds]`.
-3. Each command's timeout becomes the smaller of `RESTLOOP_TIMEOUT` and the time left (at least 1 s).
+1. A new conversation's system prompt ends with `You have Ns in total for this task; each tool result ends with the time used so far.` A resumed session keeps its system prompt, so the new task carries a similar sentence instead (see [Usage and configuration](#usage)), timed from this process's start.
+2. Each command's tool result ends with `[time used: Ns of Ds]` (not an invalid-arguments error).
+3. Each command's timeout becomes the smaller of `RESTLOOP_TIMEOUT` and the time left; only the time left is floored at 1 s, so `RESTLOOP_TIMEOUT=0` still gives 0 s.
 
-RestLoop never stops the model when the deadline passes; enforcing it is up to the caller. Time is measured from process start, so in stdin mode the budget covers all tasks together.
+RestLoop never stops the model at the deadline; the caller enforces it. Time counts from process start, so in stdin mode the budget covers all tasks.
 
 <sub>Sources: [main.rs:86-98](../src/main.rs#L86-L98) · [main.rs:101-111](../src/main.rs#L101-L111) · [main.rs:192-203](../src/main.rs#L192-L203) · [commit f9d3b4f0](https://github.com/lhwzds/restloop/commit/f9d3b4f0)</sub>
 
@@ -179,13 +181,13 @@ RestLoop never stops the model when the deadline passes; enforcing it is up to t
 
 Each command runs in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash, and PowerShell 5.1 writes UTF-8 with a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0` is set, so nothing waits for input; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
 
-stdout and stderr are read by two threads into one buffer as they arrive. After the shell exits, processes still holding its stdout or stderr get 2 s more; then the whole process group (a job object on Windows) is killed exactly as on a timeout, and `exit:` still reports the shell's own code. To keep a background service alive, redirect its output (`server > log 2>&1 &`): the pipes close when the shell exits and nothing is killed. A command timeout kills everything the command started, redirected or not. The kill uses the shell builtin `kill -9 -<pgid>`, since slim containers often lack `/bin/kill`.
+Two threads read stdout and stderr into one buffer. After the shell exits, processes still holding its pipes get up to 2 s more, never past the command's own timeout; then the whole process group (a job object on Windows) is killed, and `exit:` still reports the shell's own code. To keep a background service alive, redirect its output (`server > log 2>&1 &`): the pipes close when the shell exits and nothing is killed. A command timeout kills everything the command started, redirected or not. The kill uses the shell builtin `kill -9 -<pgid>`, since slim containers often lack `/bin/kill`.
 
 <sub>Sources: [main.rs:347-437](../src/main.rs#L347-L437) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ### What the model sees from a command
 
-The tool result is `exit: <status>` on the first line, then the combined output. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between them. Invalid UTF-8 is replaced rather than rejected. The first line being the status is what lets overflow recovery shrink a result to just that line.
+A command's tool result is `exit: <status>` on the first line, then the combined output. Two differ: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` in between. Invalid UTF-8 is replaced. Overflow recovery keeps only this first line plus a note.
 
 <sub>Sources: [main.rs:429-450](../src/main.rs#L429-L450)</sub>
 
@@ -234,7 +236,7 @@ Running the workflow by hand (`workflow_dispatch`) builds and checksums but publ
 
 The npm package contains no binary. `npm/bin/restloop.js` looks up `"<platform> <arch>"` in `checksums.json`, and on first run downloads that asset from the `v<version>` GitHub release, verifies its SHA-256, and stores it next to itself (temporary file and rename). Later runs skip the download. Either way the launcher runs the binary, passing arguments and stdio through and returning its exit status.
 
-Publishing is manual because npm trusted publishing would need an account setting, so npm stays out of the workflow (`a21f7c21`): after the GitHub release, run `node npm/stamp.js X.Y.Z SHA256SUMS`, which sets the package version and rewrites `checksums.json` for five platforms, then `npm publish --access public` from `npm/`. At this commit `checksums.json` still holds the four v0.1.0 entries, without `linux arm64`, so the npm launcher reports no binary on Linux arm64 until the next stamp.
+Publishing is manual because npm trusted publishing would need an account setting, so npm stays out of the workflow (`a21f7c21`): after the GitHub release, run `node npm/stamp.js X.Y.Z SHA256SUMS`, which sets the package version and rewrites `checksums.json` for five platforms, then `npm publish --access public` from `npm/`. At this commit `checksums.json` holds the five v0.2.0 entries: `darwin arm64`, `darwin x64`, `linux x64`, `linux arm64` (musl) and `win32 x64`.
 
 <sub>Sources: [restloop.js:1-61](../npm/bin/restloop.js#L1-L61) · [stamp.js:1-31](../npm/stamp.js#L1-L31) · [checksums.json](../npm/checksums.json) · [release.yml:5-6](../.github/workflows/release.yml#L5-L6) · [commit a21f7c21](https://github.com/lhwzds/restloop/commit/a21f7c21)</sub>
 
@@ -244,13 +246,13 @@ Publishing is manual because npm trusted publishing would need an account settin
 
 Generated by Codocia from the code on every build: areas, each area's own description, import dependencies between areas, and the pages that explain them.
 
-In scope: 11 files, 1,105 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
+In scope: 12 files, 1,236 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
 
 ### Files
 
 **Repository root**
 
-- (files) — 110 lines, 2 files. A minimal agent loop: one model, one shell tool.\
+- (files) — 205 lines, 3 files. A minimal agent loop: one model, one shell tool.\
   Explained in: [Overview](#overview) (2), [Usage and configuration](#usage) (1), [Building, releasing and contributing](#contributing) (1)
 - `.github/` — 164 lines, 2 files\
   Explained in: [Building, releasing and contributing](#contributing) (3)
@@ -260,10 +262,10 @@ In scope: 11 files, 1,105 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
 
 **`npm/`**
 
-- (files) — 65 lines, 4 files. A minimal coding-agent loop: it keeps working on your task so you can rest.\
+- (files) — 101 lines, 4 files. A minimal coding-agent loop: it keeps working on your task so you can rest.\
   Hub files: `stamp.js`\
   Explained in: [Building, releasing and contributing](#contributing) (1)
-- `bin/` — 61 lines, 1 files\
+- `bin/` — 61 lines, 1 file\
   Hub files: `restloop.js`\
   Explained in: [Building, releasing and contributing](#contributing) (1)
 

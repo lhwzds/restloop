@@ -1,5 +1,7 @@
 # RestLoop
 
+English | [中文](README_CN.md)
+
 A minimal coding-agent loop: it keeps working on your task so you can rest.
 Under 500 lines of Rust, packaged as a ~1.5 MB binary.
 
@@ -37,7 +39,7 @@ export RESTLOOP_API_KEY=...
 export RESTLOOP_MODEL=...
 export RESTLOOP_TIMEOUT=120                          # seconds per command, optional
 export RESTLOOP_MAX_STEPS=100                        # steps per task (a reply and its commands), optional
-export RESTLOOP_LOG_USAGE=1                          # token usage per request on stderr, optional
+export RESTLOOP_LOG_USAGE=1                          # token usage of each model reply on stderr, optional
 export RESTLOOP_DEADLINE=1800                        # seconds for the whole task, optional; the model sees the time used
 export RESTLOOP_LAST_MESSAGE=last.txt                # file that receives the final reply, optional
 export RESTLOOP_SESSION=task.json                    # optional: continue this conversation, saved after every step
@@ -75,7 +77,7 @@ rewritten, merged); any valid chat messages under version 1 load.
 A request that fails with 429, 5xx, a network error or an HTTP 200 without a reply
 is tried up to 5 times in all.
 When the conversation no longer fits the model's context window, the older half
-of the command outputs is cut down to its exit line (and old reasoning dropped)
+of the command outputs is cut down to its first line plus a note (and old reasoning dropped)
 before the request is sent again.
 
 There is no sandbox and no confirmation: commands run with your permissions in

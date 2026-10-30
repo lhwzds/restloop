@@ -4,7 +4,9 @@ title: restloop
 
 # restloop
 
-These docs go one level below the README for RestLoop, a single-file Rust agent loop that gives a model one `shell` tool. They describe v0.2.0 at commit f09603f4. Compared with v0.1.0 it adds context-overflow recovery, `RESTLOOP_SESSION`, a test suite with CI and retries of HTTP 200 responses without a reply, and drops `RESTLOOP_TRIM_THINKING_AT`. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
+<sub>**English** · [中文](zh/README.md)</sub>
+
+These docs go one level below the README for RestLoop, a single-file Rust agent loop that gives a model one `shell` tool. They describe v0.2.0. Compared with v0.1.0 it adds context-overflow recovery, `RESTLOOP_SESSION`, a test suite with CI and retries of HTTP 200 responses without a reply, and drops `RESTLOOP_TRIM_THINKING_AT`. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
 
 ## Contents
 
@@ -17,4 +19,4 @@ These docs go one level below the README for RestLoop, a single-file Rust agent 
 
 - [Code structure](structure.md) — generated from the code: areas, dependencies, pages
 
-<sub>Generated from https://github.com/lhwzds/restloop @ `f09603f411`</sub>
+<sub>Generated from https://github.com/lhwzds/restloop @ `496809fa59`</sub>
