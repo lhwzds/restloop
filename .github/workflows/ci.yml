@@ -1,5 +1,5 @@
 # Format, lint and test on every push to main and every pull request, on the three
-# platforms restloop runs on (the shell runner differs between them).
+# platforms restloop runs on (the shell runner differs between them); docs are checked too.
 name: CI
 
 on:
@@ -23,3 +23,12 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: cargo install codocia --version ~0.2 --locked
+      - run: codocia check
