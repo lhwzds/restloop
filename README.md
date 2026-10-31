@@ -3,7 +3,7 @@
 English | [中文](README_CN.md)
 
 A minimal coding-agent loop: it keeps working on your task so you can rest.
-About 650 lines of Rust, packaged as a ~1.5 MB binary.
+Under 700 lines of Rust, packaged as a ~1.5 MB binary.
 
 RestLoop is a personal open-source project. It gives a model one tool, `shell`,
 and runs it in a loop until the model stops calling the tool. The model reads,
@@ -11,7 +11,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 
 | | |
 |---|---|
-| Source | `src/main.rs`, about 650 lines |
+| Source | `src/main.rs`, under 700 lines |
 | Tests | `src/tests.rs`; CI runs them on macOS, Linux and Windows |
 | Dependencies | `ureq` (HTTPS), `serde_json` |
 | Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |

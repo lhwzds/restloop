@@ -3,7 +3,7 @@
 [English](README.md) | 中文
 
 一个极简的 coding agent 循环：它替你持续推进任务，你可以去休息。
-约 650 行 Rust，打包成约 1.5 MB 的二进制。
+不到 700 行 Rust，打包成约 1.5 MB 的二进制。
 
 RestLoop 是一个个人开源项目。它只给模型一个工具 `shell`，
 并循环执行，直到模型不再调用这个工具。模型通过 shell 命令读、写、编辑文件，
@@ -11,7 +11,7 @@ RestLoop 是一个个人开源项目。它只给模型一个工具 `shell`，
 
 | | |
 |---|---|
-| 源码 | `src/main.rs`，约 650 行 |
+| 源码 | `src/main.rs`，不到 700 行 |
 | 测试 | `src/tests.rs`；CI 在 macOS、Linux 和 Windows 上运行 |
 | 依赖 | `ureq`（HTTPS）、`serde_json` |
 | 二进制（release） | macOS arm64 1.3 MB，Linux x86_64 1.9 MB（静态），Windows x86_64 1.5 MB |
