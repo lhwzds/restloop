@@ -328,7 +328,6 @@ fn complete(body: &Value) -> Result<Value, String> {
     let url = format!("{}/{path}", base.trim_end_matches('/'));
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
-        .timeout_global(Some(Duration::from_secs(600)))
         .build()
         .into();
     for attempt in 0..5 {
@@ -340,8 +339,20 @@ fn complete(body: &Value) -> Result<Value, String> {
             }
             _ => env::var("RESTLOOP_API_KEY").unwrap_or_default(),
         };
+        let limit = deadline();
+        let left = limit.map_or(Duration::from_secs(600), |d| {
+            Duration::from_secs(d)
+                .saturating_sub(START.get_or_init(Instant::now).elapsed())
+                .min(Duration::from_secs(600))
+        });
+        if left.is_zero() {
+            return Err(format!("deadline of {}s reached", limit.unwrap()));
+        }
         let resp = agent
             .post(&url)
+            .config()
+            .timeout_global(Some(left))
+            .build()
             .header("Authorization", &format!("Bearer {}", key.trim()))
             .send_json(&body);
         let (status, text) = match resp {
@@ -351,10 +362,13 @@ fn complete(body: &Value) -> Result<Value, String> {
                     Err(e) => (200, e),
                 }
             }
-            Ok(mut r) => (
-                r.status().as_u16(),
-                r.body_mut().read_to_string().unwrap_or_default(),
-            ),
+            Ok(mut r) => {
+                let status = r.status().as_u16();
+                match r.body_mut().read_to_string() {
+                    Ok(text) => (status, text),
+                    Err(e) => (0, e.to_string()),
+                }
+            }
             Err(e) => (0, e.to_string()),
         };
         if status == 200 && !responses {
@@ -385,15 +399,25 @@ fn complete(body: &Value) -> Result<Value, String> {
             && !["server_error", "rate_limit", "unavailable"]
                 .iter()
                 .any(|k| text.contains(k));
-        if !(status == 0 || status == 200 || status == 429 || status >= 500)
-            || spent
-            || failed
-            || attempt == 4
+        if !(status == 0 || status == 200 || status == 429 || status >= 500) || spent || failed {
+            return Err(format!("{what}: {text}"));
+        }
+        // The last attempt has no retry to sleep for: only a deadline already passed counts.
+        let sleep = if attempt == 4 { 0 } else { 2 << attempt };
+        if let Some(d) = limit
+            && START
+                .get_or_init(Instant::now)
+                .elapsed()
+                .saturating_add(Duration::from_secs(sleep))
+                >= Duration::from_secs(d)
         {
+            return Err(format!("deadline of {d}s reached ({what}: {text})"));
+        }
+        if attempt == 4 {
             return Err(format!("{what}: {text}"));
         }
         eprintln!("restloop: {what}, retrying");
-        thread::sleep(Duration::from_secs(2 << attempt));
+        thread::sleep(Duration::from_secs(sleep));
     }
     unreachable!()
 }

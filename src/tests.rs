@@ -124,6 +124,18 @@ fn serve(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>) {
             let mut body: Value = serde_json::from_slice(&body).unwrap();
             body["auth"] = json!(auth);
             seen.lock().unwrap().push(body);
+            // Status 0 stalls before headers; status 1 stalls after 200 headers.
+            if status == 0 || status == 1 {
+                if status == 1 {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n",
+                        )
+                        .unwrap();
+                }
+                thread::sleep(Duration::from_secs(10));
+                continue;
+            }
             let (kind, text) = match reply {
                 Value::String(s) => ("text/event-stream", s),
                 r => ("application/json", r.to_string()),
@@ -367,4 +379,60 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     let mut m = vec![json!({"role": "user", "content": "six"})];
     let e = run("m", &mut m).unwrap_err();
     assert!(e.starts_with("cannot read "), "{e}");
+
+    unsafe {
+        env::remove_var("RESTLOOP_WIRE_API");
+        env::remove_var("RESTLOOP_API_KEY_FILE");
+        env::remove_var("RESTLOOP_REASONING_EFFORT");
+    }
+    let (url, bodies) = serve(vec![(0, Value::Null)]);
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_DEADLINE", (elapsed() + 3).to_string());
+    }
+    let mut m = vec![json!({"role": "user", "content": "seven"})];
+    let start = Instant::now();
+    let e = run("m", &mut m).unwrap_err();
+    assert!(e.starts_with("deadline of"), "{e}");
+    assert!(start.elapsed() < Duration::from_secs(10));
+    assert_eq!(bodies.lock().unwrap().len(), 1);
+
+    let (url, bodies) = serve(vec![(500, json!({"error": "server error"})); 5]);
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_DEADLINE", (elapsed() + 3).to_string());
+    }
+    let mut m = vec![json!({"role": "user", "content": "eight"})];
+    let start = Instant::now();
+    let e = run("m", &mut m).unwrap_err();
+    assert!(e.starts_with("deadline of"), "{e}");
+    assert!(e.contains("HTTP 500"), "{e}");
+    assert!(bodies.lock().unwrap().len() < 5);
+    assert!(start.elapsed() < Duration::from_secs(10));
+
+    let (url, bodies) = serve(vec![(400, json!({"error": "invalid"}))]);
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_DEADLINE", (elapsed() + 3).to_string());
+    }
+    let e = run("m", &mut m).unwrap_err();
+    assert_eq!(e, "HTTP 400: {\"error\":\"invalid\"}");
+    let d = elapsed();
+    unsafe { env::set_var("RESTLOOP_DEADLINE", d.to_string()) };
+    let e = run("m", &mut m).unwrap_err();
+    assert_eq!(e, format!("deadline of {d}s reached"));
+    assert_eq!(bodies.lock().unwrap().len(), 1);
+    // A successful status whose body stalls is a request failure, not a bad JSON reply.
+    let (url, bodies) = serve(vec![(1, Value::Null)]);
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_DEADLINE", (elapsed() + 3).to_string());
+    }
+    let start = Instant::now();
+    let e = run("m", &mut m).unwrap_err();
+    assert!(e.starts_with("deadline of"), "{e}");
+    assert!(e.contains("request failed"), "{e}");
+    assert!(start.elapsed() < Duration::from_secs(10));
+    assert_eq!(bodies.lock().unwrap().len(), 1);
+    unsafe { env::remove_var("RESTLOOP_DEADLINE") };
 }
