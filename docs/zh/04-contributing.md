@@ -6,19 +6,19 @@ title: 构建、发布与贡献
 
 <sub>[English](../04-contributing.md) · **中文**</sub>
 
-`cargo build --release` 生成 `target/release/restloop`。这个 crate 使用 edition 2024，并在 `if` 中使用 `let` 链（在 `shell()` 里），所以需要两者都已稳定的工具链（Rust 1.88 或更新）。release profile 针对体积优化（`opt-level = "z"`、LTO、单个 codegen unit、`panic = "abort"`、strip）。
+`cargo build --release` 生成 `target/release/restloop`。这个 crate 使用 edition 2024，并在 `if` 中使用 `let` 链，所以需要两者都已稳定的工具链（Rust 1.88 或更新）。release profile 针对体积优化（`opt-level = "z"`、LTO、单个 codegen unit、`panic = "abort"`、strip）。
 
-测试位于 `src/tests.rs`，用 `cargo test` 运行；`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 pull request 时，在 macOS、Linux 和 Windows 上运行 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 和测试。提 pull request 之前，请先在本地跑一遍这三条命令。
+测试位于 `src/tests.rs`，用 `cargo test` 运行；`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 pull request 时，在 macOS、Linux 和 Windows 上运行 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 和测试。提 pull request 之前，请先在本地跑一遍这三条命令。另有一个在 Linux 上运行的 `docs` job，检出完整历史（`fetch-depth: 0`，这样引用的 commit 才能找到），安装 Codocia 0.2 并运行 `codocia check`，所以过时的文档或 `README_CN.md` 会让 CI 失败。
 
-<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:577-584](../../src/main.rs#L577-L584) · [ci.yml:1-25](../../.github/workflows/ci.yml#L1-L25)</sub>
+<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:601-608](../../src/main.rs#L601-L608) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
 
 ## 测试覆盖了什么
 
-单元测试验证并防止其他页面所述行为回归：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况（过长的 `tool_call_id`、500、网络错误）；`drop_old_output()` 把剩余输出不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空（而非删除）`reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试在每个 CI 平台上运行：同时有两路输出时的 exit 行、超时时的 kill，以及后台的 `sleep 30 &` 不会让命令一直挂着。
+单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况（过长的 `tool_call_id`、500、网络错误）；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试在每个 CI 平台上运行：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
 
-有一个端到端测试让 `run()` 对接一个回放预设回复的本地服务器（`serve()`）：一次工具调用、一次上下文溢出的 400 及其重试、从保存的 session 恢复、对没有 `choices` 的 200 的重试。然后切换到 Responses API：key 文件、按顺序发回的输出项（去掉 `message` 和 `function_call` 项的 `id` 字段，保留 reasoning 的 id 和 `call_id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。只有这个测试会涉及 `RESTLOOP_*` 变量；它会先清掉这些变量以及所有 `*_PROXY`。
+有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices` 的 200 的重试。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500，都会提前以 `deadline of` 结束；400 照常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，并先清掉这些变量以及所有 `*_PROXY`。
 
-<sub>来源: [tests.rs:8-97](../../src/tests.rs#L8-L97) · [tests.rs:96-139](../../src/tests.rs#L96-L139) · [tests.rs:141-370](../../src/tests.rs#L141-L370) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
+<sub>来源: [tests.rs:8-97](../../src/tests.rs#L8-L97) · [tests.rs:96-151](../../src/tests.rs#L96-L151) · [tests.rs:153-438](../../src/tests.rs#L153-L438) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
 
 ## 修改循环
 

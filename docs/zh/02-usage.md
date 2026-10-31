@@ -40,7 +40,7 @@ RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命
 
 数值无法解析为无符号整数时，会静默回退到默认值（`env_num`）。`RESTLOOP_LOG_USAGE` 必须恰好是 `1`；对 key 文件和推理强度来说，空字符串等同于未设置。
 
-<sub>来源: [main.rs:10-13](../../src/main.rs#L10-L13) · [main.rs:101-124](../../src/main.rs#L101-L124) · [main.rs:132-140](../../src/main.rs#L132-L140) · [main.rs:313-346](../../src/main.rs#L313-L346) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [main.rs:10-13](../../src/main.rs#L10-L13) · [main.rs:112-124](../../src/main.rs#L112-L124) · [main.rs:132-140](../../src/main.rs#L132-L140) · [main.rs:313-350](../../src/main.rs#L313-L350) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ## stdout 和 stderr 各输出什么
 
@@ -74,4 +74,4 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 用同一路径再次运行即可恢复；先复制文件就是分叉。保存的系统 prompt 原样复用。设置了 `RESTLOOP_DEADLINE` 时，恢复后的任务末尾会追加 `[You have Ns in total for this request; the time used in tool results counts from now.]`。每一步之后都会通过 `<path>.<pid>.tmp` 重命名来替换文件，所以进程被 kill 后，文件里保存的是最后一个完整的步骤。并发运行不会损坏文件，但最后写入的会覆盖前面的。
 
-<sub>来源: [main.rs:28-29](../../src/main.rs#L28-L29) · [main.rs:63-80](../../src/main.rs#L63-L80) · [main.rs:220-233](../../src/main.rs#L220-L233) · [README.md:61-78](../../README.md#L61-L78) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>
+<sub>来源: [main.rs:28-29](../../src/main.rs#L28-L29) · [main.rs:63-80](../../src/main.rs#L63-L80) · [main.rs:220-233](../../src/main.rs#L220-L233) · [README.md:62-79](../../README.md#L62-L79) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>

@@ -56,7 +56,8 @@ assistant 的文本输出到 stdout；命令及其输出写入 stderr。
 
 任务有时间限制时，把 `RESTLOOP_DEADLINE` 设为这个限制。在 Terminal-Bench
 （30 个任务，MiniMax-M3.1-Flash）上，这让 RestLoop 解决的任务从 20 个增加到 24 个，
-超时从 5 次减少到 1 次。
+超时从 5 次减少到 1 次。模型请求同样会在 deadline 处被截断，之后 RestLoop 以
+`restloop: deadline of <N>s reached` 结束。
 
 `RESTLOOP_SESSION` 让对话跨运行保留。如果文件存在，RestLoop 会带着新任务
 继续其中的对话；每一步之后都会把对话写回去（`{"version": 1, "messages": [...]}`，
