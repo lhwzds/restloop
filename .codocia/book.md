@@ -1,7 +1,7 @@
 ---
 title: restloop
 repo: ..
-commit: ee245a8f23978956d076c6d065968d13c6b1beca
+commit: f76038cb90fe0edd5de52af7bae116ce6d9043e7
 remote: https://github.com/lhwzds/restloop
 lang: en
 max_pages: 8
