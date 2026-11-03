@@ -1,7 +1,7 @@
 ---
 title: restloop
 repo: ..
-commit: 9a2c25fbc46f1280cdd34bea3cb1058c44f52ff6
+commit: 89acba0e3d811891d59b69600d9a24c294305ffb
 remote: https://github.com/lhwzds/restloop
 lang: en
 max_pages: 8
@@ -22,4 +22,4 @@ translations:
   - README_CN.md: README.md #4eaa75ff9765
 ---
 
-These docs go one level below the README for RestLoop, a single-file Rust agent loop that gives a model one `shell` tool. They describe v0.3.0. Compared with v0.2.0 it adds the Responses API (`RESTLOOP_WIRE_API=responses`), `RESTLOOP_API_KEY_FILE` and `RESTLOOP_REASONING_EFFORT`; a used-up quota is no longer retried, model requests are bounded by `RESTLOOP_DEADLINE`, an unreadable response body is retried, and CI checks these docs. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
+These docs go one level below the README for RestLoop, a single-file Rust agent loop that gives a model one `shell` tool. They describe v0.3.1. Compared with v0.3.0 an empty model reply is retried instead of ending the run, and only a leading `<think>` block is stripped from replies. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
