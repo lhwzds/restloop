@@ -89,10 +89,10 @@ not sign in or refresh tokens itself.
 3. Repeat until the model replies without a tool call, or after 100 steps
    (`RESTLOOP_MAX_STEPS`).
 
-A request that fails with 429, 5xx, a network error or an HTTP 200 without a reply or
-with an empty one (no text and no tool call; after the last try it counts as the final
-reply) is tried up to 5 times in all, unless the error says the credits or plan limit
-are used up.
+A request that fails with 429, 5xx, a network error or an HTTP 200 without a reply is tried up
+to 5 times in all, unless the error says the credits or plan limit are used up. An empty reply
+(no tool call and no text besides a leading `<think>` block) is tried again the same way, even if
+the response mentions such a limit; if the fifth reply is still empty, it is the final reply.
 A Responses stream that breaks off is tried again; one that reports a failure only for a
 server error, a rate limit or a plan that is briefly unavailable.
 When the conversation no longer fits the model's context window, the older half

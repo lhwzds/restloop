@@ -557,6 +557,43 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
         std::fs::read_to_string(&last).unwrap(),
         format!("{verdict}\n")
     );
+
+    // Five empty replies: each one is tried again, and the fifth is the final reply.
+    // The test is slow (about 30s): the retries wait 2s, 4s, 8s and 16s before the
+    // next try, and the deadline has to be far enough ahead for all of them.
+    let (url, bodies) = serve(vec![(200, say("")); 5]);
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_DEADLINE", (elapsed() + 120).to_string());
+    }
+    let mut m = vec![json!({"role": "user", "content": "fourteen"})];
+    run("m", &mut m).unwrap();
+    assert_eq!(bodies.lock().unwrap().len(), 5);
+    assert_eq!(m.last().unwrap()["role"], "assistant");
+    assert_eq!(m.last().unwrap()["content"], "");
+
+    // Empty replies that the deadline cuts short: the run stops with the deadline
+    // error after the first retry instead of waiting for the fifth try.
+    let (url, bodies) = serve(vec![(200, say("")); 5]);
+    // The deadline counts whole seconds from the start of the run, so a deadline set
+    // just before a second turns over would leave the retry a fraction of a second.
+    // Wait for the turn, so the retry has a full second of the three.
+    let millis = u64::from(START.get_or_init(Instant::now).elapsed().subsec_millis());
+    if millis > 50 {
+        thread::sleep(Duration::from_millis(1000 - millis));
+    }
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_DEADLINE", (elapsed() + 3).to_string());
+    }
+    let mut m = vec![json!({"role": "user", "content": "fifteen"})];
+    let start = Instant::now();
+    let e = run("m", &mut m).unwrap_err();
+    assert!(e.starts_with("deadline of"), "{e}");
+    assert!(e.contains("no reply"), "{e}");
+    assert!(start.elapsed() < Duration::from_secs(10));
+    assert!(bodies.lock().unwrap().len() <= 2);
+
     unsafe {
         env::remove_var("RESTLOOP_LAST_MESSAGE");
         env::remove_var("RESTLOOP_DEADLINE");
