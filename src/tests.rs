@@ -63,6 +63,28 @@ fn trim_thinking_keeps_the_last_two_replies() {
 }
 
 #[test]
+fn an_empty_reply_has_no_text_and_no_tool_call() {
+    fn say(content: Value) -> Value {
+        json!({"choices": [{"message": {"role": "assistant", "content": content}}]})
+    }
+    let call = json!({"choices": [{"message": {"role": "assistant", "content": "",
+        "tool_calls": [{"id": "a", "type": "function",
+            "function": {"name": "shell", "arguments": "{\"command\":\"echo hi\"}"}}]}}]});
+    // A tool call is an answer, whatever the text says.
+    assert!(!empty(&call));
+    assert!(!empty(&say(json!("done"))));
+    assert!(empty(&say(json!(""))));
+    assert!(empty(&say(Value::Null)));
+    let missing = json!({"choices": [{"message": {"role": "assistant"}}]});
+    assert!(empty(&missing));
+    assert!(empty(&say(json!("<think>a</think>\n"))));
+    // The reasoning is not an answer.
+    let thinking = json!({"choices": [{"message": {"role": "assistant", "content": "",
+        "reasoning_content": "thinking"}}]});
+    assert!(empty(&thinking));
+}
+
+#[test]
 fn truncate_keeps_head_and_tail() {
     let s = "a".repeat(MAX_OUTPUT) + &"b".repeat(100);
     let t = truncate(&s);
@@ -434,5 +456,65 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     assert!(e.contains("request failed"), "{e}");
     assert!(start.elapsed() < Duration::from_secs(10));
     assert_eq!(bodies.lock().unwrap().len(), 1);
+
+    // A reply with no text and no tool call is a failed request, not an answer: it is
+    // tried again, and the run ends with the next, complete reply.
+    let say =
+        |text: &str| json!({"choices": [{"message": {"role": "assistant", "content": text}}]});
+    let (url, bodies) = serve(vec![(200, say("")), (200, say("after empty"))]);
+    let last = env::temp_dir().join(format!("restloop-last-{}", std::process::id()));
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_DEADLINE", (elapsed() + 60).to_string());
+        env::set_var("RESTLOOP_LAST_MESSAGE", &last);
+    }
+    let mut m = vec![json!({"role": "user", "content": "nine"})];
+    run("m", &mut m).unwrap();
+    assert_eq!(bodies.lock().unwrap().len(), 2);
+    assert_eq!(m[1]["content"], "after empty");
+    let written = std::fs::read_to_string(&last).unwrap();
+    assert_eq!(written.trim(), "after empty");
+    unsafe { env::remove_var("RESTLOOP_LAST_MESSAGE") };
+    let _ = std::fs::remove_file(&last);
+
+    // A reply whose text is only the model's reasoning is an empty reply, too.
+    let (url, bodies) = serve(vec![
+        (200, say("<think>x</think>  ")),
+        (200, say("after thinking")),
+    ]);
+    unsafe { env::set_var("RESTLOOP_BASE_URL", &url) };
+    let mut m = vec![json!({"role": "user", "content": "ten"})];
+    run("m", &mut m).unwrap();
+    assert_eq!(bodies.lock().unwrap().len(), 2);
+    assert_eq!(m[1]["content"], "after thinking");
+
+    // The Responses API: a stream that ends without text and without a call is retried.
+    let empty_stream = [
+        event(json!({"type": "response.completed", "response": {"output": []}})),
+        "data: [DONE]\n\n".to_string(),
+    ]
+    .concat();
+    let (url, bodies) = serve(vec![(200, json!(empty_stream)), (200, json!(done))]);
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_WIRE_API", "responses");
+    }
+    let mut m = vec![json!({"role": "user", "content": "eleven"})];
+    run("m", &mut m).unwrap();
+    assert_eq!(bodies.lock().unwrap().len(), 2);
+    assert_eq!(m[1]["content"], "no");
+    unsafe { env::remove_var("RESTLOOP_WIRE_API") };
+
+    // An empty reply is tried again even when its metadata names a used-up quota:
+    // the reply says nothing, so the next request may still work.
+    let quota = json!({"choices": [{"message": {"role": "assistant", "content": "",
+        "reasoning_content": "insufficient_quota"}}]});
+    let (url, bodies) = serve(vec![(200, quota), (200, say("after quota"))]);
+    unsafe { env::set_var("RESTLOOP_BASE_URL", &url) };
+    let mut m = vec![json!({"role": "user", "content": "twelve"})];
+    run("m", &mut m).unwrap();
+    assert_eq!(bodies.lock().unwrap().len(), 2);
+    assert_eq!(m[1]["content"], "after quota");
+
     unsafe { env::remove_var("RESTLOOP_DEADLINE") };
 }

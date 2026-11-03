@@ -310,6 +310,14 @@ fn drop_old_output(messages: &mut [Value]) -> usize {
     old.len() + trim_thinking(messages, 2)
 }
 
+/// A reply with no tool call and no text is a failed request, not an answer.
+fn empty(reply: &Value) -> bool {
+    let msg = &reply["choices"][0]["message"];
+    let text = msg["content"].as_str().unwrap_or("");
+    let answer = text.rsplit_once("</think>").map_or(text, |(_, a)| a);
+    msg["tool_calls"].as_array().is_none_or(|c| c.is_empty()) && answer.trim().is_empty()
+}
+
 fn complete(body: &Value) -> Result<Value, String> {
     let base = env::var("RESTLOOP_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".into());
     let responses = env::var("RESTLOOP_WIRE_API").is_ok_and(|v| v == "responses");
@@ -331,6 +339,7 @@ fn complete(body: &Value) -> Result<Value, String> {
         .build()
         .into();
     for attempt in 0..5 {
+        let mut empty_reply: Option<Value> = None;
         // RESTLOOP_API_KEY_FILE is read for every request, so another program can
         // replace a short-lived token while a long task runs.
         let key = match env::var("RESTLOOP_API_KEY_FILE") {
@@ -358,6 +367,10 @@ fn complete(body: &Value) -> Result<Value, String> {
         let (status, text) = match resp {
             Ok(mut r) if r.status() == 200 && responses => {
                 match responses_reply(std::io::BufReader::new(r.body_mut().as_reader())) {
+                    Ok(reply) if empty(&reply) => {
+                        empty_reply = Some(reply);
+                        (200, "empty reply".into())
+                    }
                     Ok(reply) => return Ok(reply),
                     Err(e) => (200, e),
                 }
@@ -375,7 +388,10 @@ fn complete(body: &Value) -> Result<Value, String> {
             let reply: Value =
                 serde_json::from_str(&text).map_err(|e| format!("bad response: {e}: {text}"))?;
             if reply["choices"][0]["message"].is_object() {
-                return Ok(reply);
+                if !empty(&reply) {
+                    return Ok(reply);
+                }
+                empty_reply = Some(reply);
             }
             // MiniMax answers some errors with HTTP 200 and no choices; that is not a reply.
         }
@@ -386,16 +402,15 @@ fn complete(body: &Value) -> Result<Value, String> {
         };
         // Used-up credits or plan limits do not come back within the retries, nor does a
         // failure the stream reports for another reason than the server or a limit (a
-        // refused or cut-off answer, a request too long for the context).
-        let spent = [
-            "insufficient_quota",
-            "subscription_sharing_usage_limit_exceeded",
-        ]
-        .iter()
-        .any(|k| text.contains(k));
+        // refused or cut-off answer, a request too long for the context). An empty reply
+        // is tried again all the same: it says nothing, so a limit named around it is
+        // not the reason the request failed.
+        let spent = empty_reply.is_none()
+            && (text.contains("insufficient_quota")
+                || text.contains("subscription_sharing_usage_limit_exceeded"));
         let failed = responses
             && status == 200
-            && !text.starts_with("the event stream")
+            && !(text.starts_with("the event stream") || text == "empty reply")
             && !["server_error", "rate_limit", "unavailable"]
                 .iter()
                 .any(|k| text.contains(k));
@@ -414,7 +429,7 @@ fn complete(body: &Value) -> Result<Value, String> {
             return Err(format!("deadline of {d}s reached ({what}: {text})"));
         }
         if attempt == 4 {
-            return Err(format!("{what}: {text}"));
+            return empty_reply.map_or_else(|| Err(format!("{what}: {text}")), Ok);
         }
         eprintln!("restloop: {what}, retrying");
         thread::sleep(Duration::from_secs(sleep));
