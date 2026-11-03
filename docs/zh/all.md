@@ -40,7 +40,7 @@ restloop "make the failing test pass"
 
 用其他服务商时，把 `RESTLOOP_BASE_URL` 设为 `/chat/completions` 之前的那部分。退出码和所有选项见 [用法与配置](#usage)。
 
-<sub>来源: [README.md:19-26](../../README.md#L19-L26) · [README.md:31-39](../../README.md#L31-L39) · [main.rs:314-315](../../src/main.rs#L314-L315)</sub>
+<sub>来源: [README.md:19-26](../../README.md#L19-L26) · [README.md:31-39](../../README.md#L31-L39) · [main.rs:322-323](../../src/main.rs#L322-L323)</sub>
 
 <a id="usage"></a>
 
@@ -146,9 +146,9 @@ flowchart TD
 
 ### 请求与重试
 
-`complete()` 向 `/chat/completions` POST `{"model", "messages", "tools"}`，设置了推理强度时再加上 `reasoning_effort`，没有采样参数、token 上限或流式输出。每次尝试都会重新读取 key（[用法与配置](#usage)）；key 文件无法读取时以 `cannot read <path>` 失败。每次尝试可用 min(600 s, 剩余时间)。
+`complete()` 向 `/chat/completions` POST `{"model", "messages", "tools"}`，设置了推理强度时再加上 `reasoning_effort`，没有采样参数、token 上限或流式输出。每次尝试都会重新读取 key（[用法与配置](#usage)）；key 文件无法读取时以 `cannot read <path>` 失败。
 
-网络错误（包括无法读取的 body）、HTTP 429、HTTP 5xx，以及没有 `choices[0].message` 的 HTTP 200（MiniMax 的某些错误，`333b7b64`）都会重试：总共五次尝试，中间分别等待 2、4、8、16 s，并打印 `restloop: <what>, retrying`。body 中出现 `insufficient_quota` 或 `subscription_sharing_usage_limit_exceeded` 时立即失败。其他任何状态码会让任务立即以 `<what>: <text>` 失败，`<what>` 是 `HTTP <status>`、`request failed` 或 `no reply`；第五次失败也是这样，但如果那时已经到了 deadline，则用下文的 deadline 格式。body 不是 JSON 的 200 会立即以 `bad response` 失败。
+网络错误（包括无法读取的 body）、HTTP 429、HTTP 5xx，没有 `choices[0].message` 的 HTTP 200（MiniMax 的某些错误，`333b7b64`），以及空回复（没有工具调用，`</think>` 之后也没有文字）都会重试：总共五次尝试，中间分别等待 2、4、8、16 s，并打印 `restloop: <what>, retrying`；第五次仍为空的回复就作为最终回复。body 中出现 `insufficient_quota` 或 `subscription_sharing_usage_limit_exceeded` 时立即失败，除非回复为空。其他状态码和第五次失败都会让任务以 `<what>: <text>` 失败（`HTTP <status>`、`request failed` 或 `no reply`），或用下文的 deadline 格式。不是 JSON 的 200 会立即以 `bad response` 失败。
 
 <sub>来源: [main.rs:313-422](../../src/main.rs#L313-L422) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
@@ -158,7 +158,7 @@ flowchart TD
 
 `responses_reply()` 读取事件流直到 `response.completed`，构造出一条 chat 回复：文本（或拒绝内容）、工具调用、改用 chat 名称的用量，以及 `output_items`，即按 `output_index` 排序、去掉了 message 和 call id 的输出。这些项会原样发回，因此推理内容无需服务端存储也能保留。事件流中断或提前结束时会重试；流中报告的失败（`response.failed`、`response.incomplete`、`error`）只有在是 `server_error`、`rate_limit` 或 `unavailable` 时才重试。
 
-<sub>来源: [main.rs:313-328](../../src/main.rs#L313-L328) · [main.rs:359-364](../../src/main.rs#L359-L364) · [main.rs:387-401](../../src/main.rs#L387-L401) · [main.rs:425-538](../../src/main.rs#L425-L538)</sub>
+<sub>来源: [main.rs:321-336](../../src/main.rs#L321-L336) · [main.rs:359-364](../../src/main.rs#L359-L364) · [main.rs:387-401](../../src/main.rs#L387-L401) · [main.rs:440-553](../../src/main.rs#L440-L553)</sub>
 
 ### 上下文窗口满了之后的恢复
 
@@ -181,11 +181,11 @@ flowchart TD
 1. 新对话的系统 prompt 末尾加上 `You have Ns in total for this task; each tool result ends with the time used so far.`；恢复的 session 则在新任务中附带一句类似的话（[用法与配置](#usage)）。
 2. 每条命令的工具结果末尾加上 `[time used: Ns of Ds]`。
 3. 命令的超时取 `RESTLOOP_TIMEOUT` 和剩余时间中较小的那个（剩余时间下限为 1 s）。
-4. 模型请求的超时是读取 key 文件之后的剩余时间（最多 600 s），deadline 之后不再发出请求：`restloop: deadline of <N>s reached`。重试前的等待会到达 deadline 时，以 `deadline of <N>s reached (<what>: <text>)` 结束；第五次尝试失败（没有等待）时，只有 deadline 已经过去才这样报告（`a4ba4994`）。
+4. 模型请求的超时是读取 key 文件之后的剩余时间（最多 600 s），deadline 之后不再发出请求：`restloop: deadline of <N>s reached`。重试前的等待会到达 deadline 时，以 `deadline of <N>s reached (<what>: <text>)` 结束；第五次尝试失败时，只有 deadline 已经过去才这样报告（`a4ba4994`）。
 
 时间从进程启动开始计算：在 stdin 模式下，同一个预算覆盖所有任务。
 
-<sub>来源: [main.rs:86-98](../../src/main.rs#L86-L98) · [main.rs:101-111](../../src/main.rs#L101-L111) · [main.rs:195-206](../../src/main.rs#L195-L206) · [main.rs:342-350](../../src/main.rs#L342-L350) · [main.rs:405-418](../../src/main.rs#L405-L418) · +2</sub>
+<sub>来源: [main.rs:86-98](../../src/main.rs#L86-L98) · [main.rs:101-111](../../src/main.rs#L101-L111) · [main.rs:195-206](../../src/main.rs#L195-L206) · [main.rs:351-359](../../src/main.rs#L351-L359) · [main.rs:405-418](../../src/main.rs#L405-L418) · +2</sub>
 
 ### 执行一条命令
 
@@ -193,13 +193,13 @@ flowchart TD
 
 shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超时；之后整个进程组（Windows 上是 job object）会被 kill，而 `exit:` 报告的仍是 shell 自身的退出码。后台服务只要不再占用这些管道就能继续运行，例如把输出重定向（`server > log 2>&1 &`）。超时会 kill 整个进程组；在 Unix 上，已脱离进程组的子进程不会被 kill。在 Unix 上，两种 kill 都使用 shell 内建的 `kill -9 -<pgid>`（精简容器里经常没有 `/bin/kill`）；Windows 上用 `TerminateJobObject`。
 
-<sub>来源: [main.rs:540-630](../../src/main.rs#L540-L630) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>来源: [main.rs:555-645](../../src/main.rs#L555-L645) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ### 模型从命令中看到什么
 
 命令的工具结果第一行是 `exit: <status>`，后面是合并后的输出。有两种例外：参数无效时返回 `error: arguments must be JSON…`，shell 无法启动时返回 `error: <reason>`。status 是退出码；如果 shell 被信号终止则为 `killed`，超时则为 `timeout after Ns`。超过 10,000 个字符（`MAX_OUTPUT`）的输出只保留开头和结尾各 5,000 个字符，中间插入 `... [N chars truncated] ...`。无效的 UTF-8 会被替换。
 
-<sub>来源: [main.rs:622-643](../../src/main.rs#L622-L643)</sub>
+<sub>来源: [main.rs:637-658](../../src/main.rs#L637-L658)</sub>
 
 <a id="contributing"></a>
 
@@ -209,15 +209,15 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 
 测试位于 `src/tests.rs`，用 `cargo test` 运行；`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 pull request 时，在 macOS、Linux 和 Windows 上运行 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 和测试。提 pull request 之前，请先在本地跑一遍这三条命令。另有一个在 Linux 上运行的 `docs` job，检出完整历史（`fetch-depth: 0`，这样引用的 commit 才能找到），安装 Codocia 0.2 并运行 `codocia check`，所以过时的文档或 `README_CN.md` 会让 CI 失败。
 
-<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:601-608](../../src/main.rs#L601-L608) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
+<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:616-623](../../src/main.rs#L616-L623) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
 
 ### 测试覆盖了什么
 
-单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况（过长的 `tool_call_id`、500、网络错误）；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试在每个 CI 平台上运行：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
+单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况（过长的 `tool_call_id`、500、网络错误）；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
 
-有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices` 的 200 的重试。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500，都会提前以 `deadline of` 结束；400 照常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，并先清掉这些变量以及所有 `*_PROXY`。
+有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices`、回复为空或只有推理内容的 200 的重试。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500，都会提前以 `deadline of` 结束；400 照常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，并先清掉这些变量以及 `*_PROXY`。
 
-<sub>来源: [tests.rs:8-97](../../src/tests.rs#L8-L97) · [tests.rs:96-151](../../src/tests.rs#L96-L151) · [tests.rs:153-438](../../src/tests.rs#L153-L438) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
+<sub>来源: [tests.rs:8-97](../../src/tests.rs#L8-L97) · [tests.rs:118-173](../../src/tests.rs#L118-L173) · [tests.rs:153-438](../../src/tests.rs#L153-L438) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
 
 ### 修改循环
 
@@ -259,17 +259,17 @@ stamp 后的 `package.json` 和 `checksums.json` 只存在于 runner 上，从�
 
 本页由 Codocia 根据代码自动生成，每次 build 重新计算：功能区划分、各区自带的说明、区之间的 import 依赖，以及讲解各区的页面。
 
-范围内共 12 个文件，1,716 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
+范围内共 12 个文件，1,815 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
 
 ### 文件结构
 
 **仓库根目录**
 
-- （根目录文件） — 235 行，3 个文件。A minimal agent loop: one model, one shell tool.\
+- （根目录文件） — 237 行，3 个文件。A minimal agent loop: one model, one shell tool.\
   讲解：[概览](#overview) (2), [用法与配置](#usage) (1), [构建、发布与贡献](#contributing) (1)
 - `.github/` — 198 行，2 个文件\
   讲解：[构建、发布与贡献](#contributing) (3)
-- `src/` — 1,121 行，2 个文件\
+- `src/` — 1,218 行，2 个文件\
   核心文件：`main.rs` `tests.rs`\
   讲解：[概览](#overview) (3), [用法与配置](#usage) (6), [工作原理](#how-it-works) (9), [构建、发布与贡献](#contributing) (3)
 

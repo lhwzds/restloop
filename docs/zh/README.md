@@ -19,4 +19,4 @@ title: restloop
 
 - [代码结构](structure.md) — 从代码生成：功能区、依赖、讲解页
 
-<sub>生成自 https://github.com/lhwzds/restloop @ `f76038cb90`</sub>
+<sub>生成自 https://github.com/lhwzds/restloop @ `10930430a4`</sub>
