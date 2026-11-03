@@ -8,7 +8,7 @@ title: 代码结构
 
 本页由 Codocia 根据代码自动生成，每次 build 重新计算：功能区划分、各区自带的说明、区之间的 import 依赖，以及讲解各区的页面。
 
-范围内共 12 个文件，1,815 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
+范围内共 12 个文件，1,856 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
 
 ## 文件结构
 
@@ -18,7 +18,7 @@ title: 代码结构
   讲解：[概览](01-overview.md) (2), [用法与配置](02-usage.md) (1), [构建、发布与贡献](04-contributing.md) (1)
 - `.github/` — 198 行，2 个文件\
   讲解：[构建、发布与贡献](04-contributing.md) (3)
-- `src/` — 1,218 行，2 个文件\
+- `src/` — 1,259 行，2 个文件\
   核心文件：`main.rs` `tests.rs`\
   讲解：[概览](01-overview.md) (3), [用法与配置](02-usage.md) (6), [工作原理](03-how-it-works.md) (9), [构建、发布与贡献](04-contributing.md) (3)
 

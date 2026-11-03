@@ -10,7 +10,7 @@ title: 构建、发布与贡献
 
 测试位于 `src/tests.rs`，用 `cargo test` 运行；`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 pull request 时，在 macOS、Linux 和 Windows 上运行 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 和测试。提 pull request 之前，请先在本地跑一遍这三条命令。另有一个在 Linux 上运行的 `docs` job，检出完整历史（`fetch-depth: 0`，这样引用的 commit 才能找到），安装 Codocia 0.2 并运行 `codocia check`，所以过时的文档或 `README_CN.md` 会让 CI 失败。
 
-<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:616-623](../../src/main.rs#L616-L623) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
+<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:612-619](../../src/main.rs#L612-L619) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
 
 ## 测试覆盖了什么
 
@@ -18,7 +18,7 @@ title: 构建、发布与贡献
 
 有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices`、回复为空或只有推理内容的 200 的重试。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500，都会提前以 `deadline of` 结束；400 照常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，并先清掉这些变量以及 `*_PROXY`。
 
-<sub>来源: [tests.rs:8-97](../../src/tests.rs#L8-L97) · [tests.rs:118-173](../../src/tests.rs#L118-L173) · [tests.rs:153-438](../../src/tests.rs#L153-L438) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
+<sub>来源: [tests.rs:8-97](../../src/tests.rs#L8-L97) · [tests.rs:141-196](../../src/tests.rs#L141-L196) · [tests.rs:176-461](../../src/tests.rs#L176-L461) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
 
 ## 修改循环
 
@@ -29,7 +29,7 @@ title: 构建、发布与贡献
 - **保持 prompt 前缀稳定。** 任何改写早先消息的操作都会破坏服务商的 prompt 缓存；RestLoop 只在服务商报告溢出时才这样做。基于阈值的裁剪在一次 A/B 测试显示没有收益后已被移除（`f09603f4`）。
 - **程序保持一个文件、两个依赖。** 程序就是 `src/main.rs`，测试在 `src/tests.rs`。程序的小巧和可读性正是意义所在。
 
-<sub>来源: [main.rs:118-124](../../src/main.rs#L118-L124) · [tests.rs:1-6](../../src/tests.rs#L1-L6) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [main.rs:115-121](../../src/main.rs#L115-L121) · [tests.rs:1-6](../../src/tests.rs#L1-L6) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ## 如何发布一个版本
 

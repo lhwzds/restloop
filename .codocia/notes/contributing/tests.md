@@ -2,9 +2,9 @@
 title: What the tests cover
 order: 5
 evidence:
-  - src/tests.rs:8-97 #622ddde327a6
-  - src/tests.rs:118-173 #e1b221e5e30a
-  - src/tests.rs:153-438 #5fa8b3f8ef1f
+  - src/tests.rs:8-97 #d370320c7645
+  - src/tests.rs:141-196 #e1b221e5e30a
+  - src/tests.rs:176-461 #5fa8b3f8ef1f
   - commit:4c468f27
   - commit:333b7b64
   - commit:a4ba4994

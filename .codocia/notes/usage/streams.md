@@ -2,9 +2,9 @@
 title: What goes to stdout and stderr
 order: 30
 evidence:
-  - src/main.rs:151-165 #cb51ce04a2dd
-  - src/main.rs:189-214 #8c6d3e5de5e6
-  - src/main.rs:144-147 #0803b9405cbf
+  - src/main.rs:148-162 #cb51ce04a2dd
+  - src/main.rs:185-210 #8c6d3e5de5e6
+  - src/main.rs:141-144 #0803b9405cbf
 ---
 
 stdout carries only the model's text: every non-empty reply is printed, trimmed, including the short comments a model writes alongside tool calls. There is no separator between steps, so a script that needs only the final answer should use `RESTLOOP_LAST_MESSAGE`.

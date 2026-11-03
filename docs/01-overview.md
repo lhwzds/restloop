@@ -19,7 +19,7 @@ It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a
 - **No configuration file and no database.** All options are environment variables read at the point of use; RestLoop itself writes only the optional session and last-message files (see [Usage and configuration](02-usage.md)).
 - **No sandbox and no confirmation.** Commands run with your permissions in the current directory. Isolation is the caller's job: a container or a throwaway checkout.
 
-<sub>Sources: [main.rs:82-99](../src/main.rs#L82-L99) · [main.rs:126-131](../src/main.rs#L126-L131) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>Sources: [main.rs:82-99](../src/main.rs#L82-L99) · [main.rs:123-128](../src/main.rs#L123-L128) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ## A first result
 
@@ -34,4 +34,4 @@ restloop "make the failing test pass"
 
 For other providers set `RESTLOOP_BASE_URL` to the part before `/chat/completions`. Exit codes and every option are described in [Usage and configuration](02-usage.md).
 
-<sub>Sources: [README.md:19-26](../README.md#L19-L26) · [README.md:31-39](../README.md#L31-L39) · [main.rs:322-323](../src/main.rs#L322-L323)</sub>
+<sub>Sources: [README.md:19-26](../README.md#L19-L26) · [README.md:31-39](../README.md#L31-L39) · [main.rs:318-319](../src/main.rs#L318-L319)</sub>

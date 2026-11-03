@@ -40,7 +40,7 @@ Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SE
 
 Numbers that do not parse as an unsigned integer silently fall back to the default (`env_num`). `RESTLOOP_LOG_USAGE` must be exactly `1`; empty strings count as unset for the key file and the effort.
 
-<sub>Sources: [main.rs:10-13](../src/main.rs#L10-L13) · [main.rs:112-124](../src/main.rs#L112-L124) · [main.rs:132-140](../src/main.rs#L132-L140) · [main.rs:313-350](../src/main.rs#L313-L350) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>Sources: [main.rs:10-13](../src/main.rs#L10-L13) · [main.rs:109-121](../src/main.rs#L109-L121) · [main.rs:129-137](../src/main.rs#L129-L137) · [main.rs:313-350](../src/main.rs#L313-L350) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ## What goes to stdout and stderr
 
@@ -54,13 +54,13 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 Fields the provider does not report print as `null`.
 
-<sub>Sources: [main.rs:151-165](../src/main.rs#L151-L165) · [main.rs:189-214](../src/main.rs#L189-L214) · [main.rs:144-147](../src/main.rs#L144-L147)</sub>
+<sub>Sources: [main.rs:148-162](../src/main.rs#L148-L162) · [main.rs:185-210](../src/main.rs#L185-L210) · [main.rs:141-144](../src/main.rs#L141-L144)</sub>
 
 ## The final-reply file
 
-With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, when the model replies without a tool call, writes the reply text to it with a trailing newline. Anything up to the last `</think>` is cut off, for models that inline their reasoning. The delete is best-effort (errors are ignored), so a run that ends early (step limit, API error, kill) usually leaves no file rather than the previous answer; for certainty, pass a fresh path on every run.
+With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, when the model replies without a tool call, writes the reply text to it with a trailing newline. For models that inline their reasoning, a leading `<think>` block is cut off up to the first `</think>` (unclosed, nothing is left); any other reply is written whole, even if it quotes `</think>`. The delete is best-effort (errors are ignored), so a run that ends early (step limit, API error, kill) usually leaves no file rather than the previous answer; for certainty, pass a fresh path on every run.
 
-<sub>Sources: [main.rs:134-139](../src/main.rs#L134-L139) · [main.rs:178-187](../src/main.rs#L178-L187) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
+<sub>Sources: [main.rs:131-136](../src/main.rs#L131-L136) · [main.rs:175-183](../src/main.rs#L175-L183) · [main.rs:300-308](../src/main.rs#L300-L308) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
 ## Session files: resume and fork
 
@@ -74,4 +74,4 @@ With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, wh
 
 Run again with the same path to resume; copy the file first to fork. The saved system prompt is reused unchanged. With `RESTLOOP_DEADLINE`, a resumed task gets `[You have Ns in total for this request; the time used in tool results counts from now.]` appended. The file is replaced after every step through a `<path>.<pid>.tmp` rename, so after a kill it holds the last complete step. Concurrent runs never corrupt it, but the last writer wins.
 
-<sub>Sources: [main.rs:28-29](../src/main.rs#L28-L29) · [main.rs:63-80](../src/main.rs#L63-L80) · [main.rs:220-233](../src/main.rs#L220-L233) · [README.md:62-79](../README.md#L62-L79) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>
+<sub>Sources: [main.rs:28-29](../src/main.rs#L28-L29) · [main.rs:63-80](../src/main.rs#L63-L80) · [main.rs:216-229](../src/main.rs#L216-L229) · [README.md:62-79](../README.md#L62-L79) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>

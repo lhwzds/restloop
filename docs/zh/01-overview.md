@@ -19,7 +19,7 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 - **没有配置文件，也没有数据库。** 所有选项都是在用到时才读取的环境变量；RestLoop 自己只会写可选的 session 文件和最终回复文件（见 [用法与配置](02-usage.md)）。
 - **没有沙箱，也没有确认。** 命令以你的权限在当前目录执行。隔离由调用方负责：用容器或一次性的 checkout。
 
-<sub>来源: [main.rs:82-99](../../src/main.rs#L82-L99) · [main.rs:126-131](../../src/main.rs#L126-L131) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>来源: [main.rs:82-99](../../src/main.rs#L82-L99) · [main.rs:123-128](../../src/main.rs#L123-L128) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ## 第一次运行
 
@@ -34,4 +34,4 @@ restloop "make the failing test pass"
 
 用其他服务商时，把 `RESTLOOP_BASE_URL` 设为 `/chat/completions` 之前的那部分。退出码和所有选项见 [用法与配置](02-usage.md)。
 
-<sub>来源: [README.md:19-26](../../README.md#L19-L26) · [README.md:31-39](../../README.md#L31-L39) · [main.rs:322-323](../../src/main.rs#L322-L323)</sub>
+<sub>来源: [README.md:19-26](../../README.md#L19-L26) · [README.md:31-39](../../README.md#L31-L39) · [main.rs:318-319](../../src/main.rs#L318-L319)</sub>

@@ -4,7 +4,7 @@ order: 20
 evidence:
   - README.md:19-26 #5228e4e3469a
   - README.md:31-39 #79979b997ff3
-  - src/main.rs:322-323 #580453feaa30
+  - src/main.rs:318-319 #580453feaa30
 ---
 
 Install with Homebrew (`brew install lhwzds/tap/restloop`), npm (`npm install -g restloop`) or `cargo install --git https://github.com/lhwzds/restloop`. Only `RESTLOOP_MODEL` is required. The endpoint defaults to `https://api.openai.com/v1`, so for OpenAI a key and a model name are enough:

@@ -20,7 +20,7 @@ flowchart TD
   G -->|limit reached| H["Err: stopped after N steps"]
 ```
 
-<sub>Sources: [main.rs:126-131](../src/main.rs#L126-L131) · [main.rs:140-150](../src/main.rs#L140-L150) · [main.rs:216-218](../src/main.rs#L216-L218)</sub>
+<sub>Sources: [main.rs:123-128](../src/main.rs#L123-L128) · [main.rs:137-147](../src/main.rs#L137-L147) · [main.rs:212-214](../src/main.rs#L212-L214)</sub>
 
 ## What the conversation holds
 
@@ -28,13 +28,13 @@ The system prompt from `system_prompt()` comes first: instructions plus OS, shel
 
 Each tool call gets one `tool` message with the matching `tool_call_id`. Arguments that are not JSON with a `command` string get an error quoting them, so the model can fix them.
 
-<sub>Sources: [main.rs:82-99](../src/main.rs#L82-L99) · [main.rs:161-177](../src/main.rs#L161-L177) · [main.rs:189-214](../src/main.rs#L189-L214)</sub>
+<sub>Sources: [main.rs:82-99](../src/main.rs#L82-L99) · [main.rs:158-174](../src/main.rs#L158-L174) · [main.rs:185-210](../src/main.rs#L185-L210)</sub>
 
 ## Requests and retries
 
 `complete()` posts `{"model", "messages", "tools"}` to `/chat/completions`, plus `reasoning_effort` if set, without sampling parameters, token limit or streaming. The key is reread per attempt ([Usage and configuration](02-usage.md)); an unreadable key file fails with `cannot read <path>`.
 
-Network errors (unreadable bodies included), HTTP 429, 5xx, a 200 without `choices[0].message` (some MiniMax errors, `333b7b64`) and an empty reply (no tool call, no text after any `</think>`) are retried: five attempts, sleeping 2, 4, 8, 16 s, printing `restloop: <what>, retrying`; a fifth empty reply is the final one. A body with `insufficient_quota` or `subscription_sharing_usage_limit_exceeded` fails at once, unless the reply is empty. Other statuses, and the fifth failure, fail the task with `<what>: <text>` (`HTTP <status>`, `request failed` or `no reply`), or the deadline form below. A non-JSON 200 fails at once with `bad response`.
+Network errors (unreadable bodies included), HTTP 429, 5xx, a 200 without `choices[0].message` (some MiniMax errors, `333b7b64`) and an empty reply (no tool call, no text outside a leading `<think>`) are retried: five attempts, sleeping 2, 4, 8, 16 s, printing `restloop: <what>, retrying`; a fifth empty reply is the final one. A body with `insufficient_quota` or `subscription_sharing_usage_limit_exceeded` fails at once, unless the reply is empty. Other statuses, and the fifth failure, fail the task with `<what>: <text>` (`HTTP <status>`, `request failed` or `no reply`), or the deadline form below. A non-JSON 200 fails at once with `bad response`.
 
 <sub>Sources: [main.rs:313-422](../src/main.rs#L313-L422) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
@@ -44,7 +44,7 @@ With `RESTLOOP_WIRE_API=responses`, `complete()` posts to `/responses`. The conv
 
 `responses_reply()` reads the event stream until `response.completed` and builds a chat reply: text (or refusal), tool calls, usage under chat names, and `output_items`, the output in `output_index` order minus message and call ids. These go back verbatim, so reasoning survives without server-side storage. A stream that breaks or ends early is retried; a reported failure (`response.failed`, `response.incomplete`, `error`) only for `server_error`, `rate_limit` or `unavailable`.
 
-<sub>Sources: [main.rs:321-336](../src/main.rs#L321-L336) · [main.rs:359-364](../src/main.rs#L359-L364) · [main.rs:387-401](../src/main.rs#L387-L401) · [main.rs:440-553](../src/main.rs#L440-L553)</sub>
+<sub>Sources: [main.rs:317-332](../src/main.rs#L317-L332) · [main.rs:355-360](../src/main.rs#L355-L360) · [main.rs:383-397](../src/main.rs#L383-L397) · [main.rs:436-549](../src/main.rs#L436-L549)</sub>
 
 ## Recovering from a full context window
 
@@ -52,11 +52,11 @@ Since `21f3c1dc`, `too_long()` recognises a context overflow: an HTTP 400 or 413
 
 On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` messages not yet shortened to their first line plus `[output removed to fit the context window]`, empties old reasoning with `trim_thinking()`, and the request is retried. Each retry halves the rest; when nothing changes, the error is returned. Commands and visible replies stay, so the model knows what it did.
 
-<sub>Sources: [main.rs:141-150](../src/main.rs#L141-L150) · [main.rs:268-311](../src/main.rs#L268-L311) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
+<sub>Sources: [main.rs:138-147](../src/main.rs#L138-L147) · [main.rs:268-311](../src/main.rs#L268-L311) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
 ## Emptying old reasoning
 
-`trim_thinking()` empties the reasoning of every assistant message except the last two: `reasoning_content` becomes `""`, `reasoning` items are removed from `output_items` (message items keep their phase), and any text up to `</think>` is cut from `content`. Since `70f40924` the key is kept with an empty value rather than deleted, since DeepSeek's thinking mode rejects (HTTP 400) a tool-turn assistant message missing it. Already emptied messages do not count as changed, so retries terminate.
+`trim_thinking()` empties the reasoning of every assistant message except the last two: `reasoning_content` becomes `""`, `reasoning` items are removed from `output_items` (message items keep their phase), and a leading `<think>` block is cut from `content`. Since `70f40924` the key is kept with an empty value rather than deleted, since DeepSeek's thinking mode rejects (HTTP 400) a tool-turn assistant message missing it. Already emptied messages do not count as changed, so retries terminate.
 
 <sub>Sources: [main.rs:235-266](../src/main.rs#L235-L266) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
@@ -71,7 +71,7 @@ On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` m
 
 Time counts from process start: in stdin mode one budget covers all tasks.
 
-<sub>Sources: [main.rs:86-98](../src/main.rs#L86-L98) · [main.rs:101-111](../src/main.rs#L101-L111) · [main.rs:195-206](../src/main.rs#L195-L206) · [main.rs:351-359](../src/main.rs#L351-L359) · [main.rs:405-418](../src/main.rs#L405-L418) · +2</sub>
+<sub>Sources: [main.rs:83-95](../src/main.rs#L83-L95) · [main.rs:98-108](../src/main.rs#L98-L108) · [main.rs:191-202](../src/main.rs#L191-L202) · [main.rs:347-355](../src/main.rs#L347-L355) · [main.rs:401-414](../src/main.rs#L401-L414) · +2</sub>
 
 ## Running a command
 
@@ -79,10 +79,10 @@ Each command runs in a fresh shell in the current directory: `sh -c` on Unix; on
 
 After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is killed, and `exit:` still reports the shell's code. A background service survives once it stops holding those pipes, e.g. by redirecting output (`server > log 2>&1 &`). A timeout kills the process group; on Unix a child that left it survives. On Unix the kills use the shell builtin `kill -9 -<pgid>` (slim containers often lack `/bin/kill`); Windows uses `TerminateJobObject`.
 
-<sub>Sources: [main.rs:555-645](../src/main.rs#L555-L645) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>Sources: [main.rs:551-641](../src/main.rs#L551-L641) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ## What the model sees from a command
 
 A command's tool result is `exit: <status>` on the first line, then the combined output. Two differ: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Invalid UTF-8 is replaced.
 
-<sub>Sources: [main.rs:637-658](../src/main.rs#L637-L658)</sub>
+<sub>Sources: [main.rs:633-654](../src/main.rs#L633-L654)</sub>
