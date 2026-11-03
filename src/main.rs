@@ -66,10 +66,8 @@ fn conversation() -> Vec<Value> {
     if path.is_empty() || !std::path::Path::new(&path).exists() {
         return vec![json!({"role": "system", "content": system_prompt()})];
     }
-    let doc: Value = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let doc: Value = serde_json::from_str(&text).unwrap_or_default();
     match doc["messages"].as_array() {
         Some(m) if doc["version"] == 1 && !m.is_empty() => m.clone(),
         _ => {
@@ -80,9 +78,8 @@ fn conversation() -> Vec<Value> {
 }
 
 fn system_prompt() -> String {
-    let cwd = env::current_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
+    let cwd = env::current_dir().unwrap_or_default();
+    let cwd = cwd.display().to_string();
     format!(
         "You are a coding agent. Use the shell tool to inspect files, edit them and run commands until the task is done, then reply with a short summary and no tool call.\nOS: {}. Shell: {}. Working directory: {cwd}.\nCommands run non-interactively with no stdin and a {}s timeout; long output is truncated.{}",
         env::consts::OS,
@@ -178,9 +175,8 @@ fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
         if calls.is_empty() {
             save(messages);
             if let Some(path) = &last_message {
-                // Some models put their reasoning in <think> tags inside the reply.
-                let answer = text.rsplit_once("</think>").map_or(text, |(_, a)| a).trim();
-                if let Err(e) = std::fs::write(path, format!("{answer}\n")) {
+                let final_reply = answer(text).trim();
+                if let Err(e) = std::fs::write(path, format!("{final_reply}\n")) {
                     eprintln!("restloop: cannot write {path}: {e}");
                 }
             }
@@ -248,19 +244,17 @@ fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
             .filter(|r| r.as_str() != Some(""))
             .map(|r| *r = json!(""));
         // Of the Responses API's output, only the reasoning goes: messages keep their phase.
-        let had = had.or(m
-            .get_mut("output_items")
-            .and_then(Value::as_array_mut)
+        let items = m.get_mut("output_items").and_then(Value::as_array_mut);
+        let had = had.or(items
             .filter(|o| o.iter().any(|i| i["type"] == "reasoning"))
             .map(|o| o.retain(|i| i["type"] != "reasoning")));
-        let stripped = m["content"]
-            .as_str()
-            .and_then(|t| t.rsplit_once("</think>"))
-            .map(|(_, a)| a.trim().to_string());
-        if let Some(s) = &stripped {
-            m["content"] = json!(s);
+        let content = m["content"].as_str().unwrap_or("");
+        let a = answer(content);
+        let stripped = a != content;
+        if stripped {
+            m["content"] = json!(a.trim());
         }
-        changed += usize::from(had.is_some() || stripped.is_some());
+        changed += usize::from(had.is_some() || stripped);
     }
     changed
 }
@@ -290,32 +284,34 @@ fn drop_old_output(messages: &mut [Value]) -> usize {
     let old: Vec<usize> = (0..messages.len())
         .filter(|&i| messages[i]["role"] == "tool")
         .filter(|&i| {
-            !messages[i]["content"]
-                .as_str()
-                .unwrap_or("")
-                .ends_with(NOTE)
+            let c = messages[i]["content"].as_str().unwrap_or("");
+            !c.ends_with(NOTE)
         })
         .collect();
     let old = &old[..old.len().div_ceil(2)];
     for &i in old {
-        let exit = messages[i]["content"]
-            .as_str()
-            .unwrap_or("")
-            .lines()
-            .next()
-            .unwrap_or("")
-            .to_string();
+        let text = messages[i]["content"].as_str().unwrap_or("");
+        let exit = text.lines().next().unwrap_or("");
         messages[i]["content"] = json!(format!("{exit}\n{NOTE}"));
     }
     old.len() + trim_thinking(messages, 2)
+}
+
+/// Some models put their reasoning in a leading `<think>` block inside the reply: the
+/// answer is what follows the first `</think>` after it.
+fn answer(text: &str) -> &str {
+    let t = text.trim_start();
+    if !t.starts_with("<think>") {
+        return text;
+    }
+    t.split_once("</think>").map_or("", |(_, a)| a)
 }
 
 /// A reply with no tool call and no text is a failed request, not an answer.
 fn empty(reply: &Value) -> bool {
     let msg = &reply["choices"][0]["message"];
     let text = msg["content"].as_str().unwrap_or("");
-    let answer = text.rsplit_once("</think>").map_or(text, |(_, a)| a);
-    msg["tool_calls"].as_array().is_none_or(|c| c.is_empty()) && answer.trim().is_empty()
+    msg["tool_calls"].as_array().is_none_or(|c| c.is_empty()) && answer(text).trim().is_empty()
 }
 
 fn complete(body: &Value) -> Result<Value, String> {

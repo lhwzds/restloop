@@ -6,6 +6,23 @@ use std::io::{BufReader, Write};
 use std::net::TcpListener;
 
 #[test]
+fn answer_strips_only_a_leading_think_block() {
+    assert_eq!(answer("<think>a</think>b"), "b");
+    assert_eq!(answer("  <think>a</think>\nb"), "\nb");
+    assert_eq!(answer("  <think>a</think>\nb").trim(), "b");
+    // A reply that is only reasoning has no answer.
+    assert_eq!(answer("<think>unclosed"), "");
+    // A reply that quotes the tag keeps everything before it.
+    let quoted = "VERDICT: PASS\nthe code calls rsplit_once(\"</think>\")";
+    assert_eq!(answer(quoted), quoted);
+    // Only the first think block goes.
+    assert_eq!(
+        answer("<think>x</think>ok, see </think> in code"),
+        "ok, see </think> in code"
+    );
+}
+
+#[test]
 fn too_long_matches_only_context_overflow_errors() {
     for e in [
         // Measured on 2026-10-28 (DeepSeek, MiniMax), and the OpenAI and Anthropic wording.
@@ -54,6 +71,10 @@ fn trim_thinking_keeps_the_last_two_replies() {
     assert_eq!(m[3]["content"], "<think>t3</think>a3");
     assert_eq!(m[3]["reasoning_content"], "r");
     assert_eq!(trim_thinking(&mut m, 2), 0);
+    // A content that only quotes the tag is left as it is.
+    let mut m = vec![json!({"role": "assistant", "content": "plain </think> text"})];
+    assert_eq!(trim_thinking(&mut m, 0), 0);
+    assert_eq!(m[0]["content"], "plain </think> text");
     // Of the Responses API's output items only the reasoning is dropped.
     let items = json!([{"type": "reasoning"}, {"type": "message", "phase": "commentary"}]);
     let mut m = vec![json!({"role": "assistant", "content": "", "output_items": items})];
@@ -78,6 +99,8 @@ fn an_empty_reply_has_no_text_and_no_tool_call() {
     let missing = json!({"choices": [{"message": {"role": "assistant"}}]});
     assert!(empty(&missing));
     assert!(empty(&say(json!("<think>a</think>\n"))));
+    // A reply that quotes the tag is an answer, not an empty one.
+    assert!(!empty(&say(json!("VERDICT: PASS uses </think>"))));
     // The reasoning is not an answer.
     let thinking = json!({"choices": [{"message": {"role": "assistant", "content": "",
         "reasoning_content": "thinking"}}]});
@@ -516,5 +539,27 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     assert_eq!(bodies.lock().unwrap().len(), 2);
     assert_eq!(m[1]["content"], "after quota");
 
-    unsafe { env::remove_var("RESTLOOP_DEADLINE") };
+    // A final reply that quotes the tag is written to RESTLOOP_LAST_MESSAGE whole:
+    // the verdict in front of it is the answer.
+    let verdict = "VERDICT: PASS\nthe code calls rsplit_once(\"</think>\")";
+    let reply = json!({"choices": [{"message": {"role": "assistant", "content": verdict}}]});
+    let (url, bodies) = serve(vec![(200, reply)]);
+    let last = env::temp_dir().join(format!("restloop-verdict-{}", std::process::id()));
+    unsafe {
+        env::set_var("RESTLOOP_BASE_URL", &url);
+        env::set_var("RESTLOOP_DEADLINE", (elapsed() + 60).to_string());
+        env::set_var("RESTLOOP_LAST_MESSAGE", &last);
+    }
+    let mut m = vec![json!({"role": "user", "content": "thirteen"})];
+    run("m", &mut m).unwrap();
+    assert_eq!(bodies.lock().unwrap().len(), 1);
+    assert_eq!(
+        std::fs::read_to_string(&last).unwrap(),
+        format!("{verdict}\n")
+    );
+    unsafe {
+        env::remove_var("RESTLOOP_LAST_MESSAGE");
+        env::remove_var("RESTLOOP_DEADLINE");
+    }
+    let _ = std::fs::remove_file(&last);
 }
