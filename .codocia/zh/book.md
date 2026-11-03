@@ -1,6 +1,6 @@
 ---
 title: restloop
-source: '#f15370df78d5'
+source: #f15370df78d5
 pages:
   - overview: 概览
   - usage: 用法与配置

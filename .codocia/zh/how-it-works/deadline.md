@@ -1,6 +1,6 @@
 ---
 title: 时间预算
-source: '#0081011e2cbb'
+source: #0081011e2cbb
 ---
 
 `RESTLOOP_DEADLINE`（`f9d3b4f0`：Terminal-Bench 任务曾在不知情时耗尽时间）从以下几方面约束任务：

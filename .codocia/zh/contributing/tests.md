@@ -1,6 +1,6 @@
 ---
 title: 测试覆盖了什么
-source: '#8a3531e3bd6a'
+source: #8a3531e3bd6a
 ---
 
 单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。

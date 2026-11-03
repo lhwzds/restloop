@@ -1,6 +1,6 @@
 ---
 title: 请求与重试
-source: '#e2bbd14bfc85'
+source: #e2bbd14bfc85
 ---
 
 `complete()` 向 `/chat/completions` POST `{"model", "messages", "tools"}`，设置了推理强度时再加上 `reasoning_effort`，没有采样参数、token 上限或流式输出。每次尝试都会重新读取 key（[[usage]]）；key 文件无法读取时以 `cannot read <path>` 失败。
