@@ -98,7 +98,7 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 ### 最终回复文件
 
-设置 `RESTLOOP_LAST_MESSAGE=<path>` 后，每个任务开始时先删除该文件；当模型不调用工具直接回复时，把回复文本加上末尾换行写入该文件。对于把推理内容内联在回复里的模型，开头的 `<think>` 块会被截掉，截到第一个 `</think>` 为止（没有闭合时什么都不剩）；其他回复即使引用了 `</think>` 也会完整写入。删除只是尽力而为（错误会被忽略），所以提前结束的运行（步数上限、API 错误、被 kill）通常不会留下文件，而不是留下上一次的答案；需要确定性时，每次运行都传一个新路径。
+设置 `RESTLOOP_LAST_MESSAGE=<path>` 后，每个任务开始时先删除该文件；当模型不调用工具直接回复时，把回复文本加上末尾换行写入该文件。对于把推理内容内联在回复里的模型，开头的 `<think>` 块会被截掉，截到第一个 `</think>` 为止（没有闭合时什么都不剩）；其他回复即使引用了 `</think>` 也会完整写入。两种情况都会去掉首尾空白。删除只是尽力而为（错误会被忽略），所以提前结束的运行（步数上限、API 错误、被 kill）通常不会留下文件，而不是留下上一次的答案；需要确定性时，每次运行都传一个新路径。
 
 <sub>来源: [main.rs:131-136](../../src/main.rs#L131-L136) · [main.rs:175-183](../../src/main.rs#L175-L183) · [main.rs:300-308](../../src/main.rs#L300-L308) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
@@ -213,9 +213,9 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 
 ### 测试覆盖了什么
 
-单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况（过长的 `tool_call_id`、500、网络错误）；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
+单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
 
-有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices`、回复为空或只有推理内容的 200 的重试。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500，都会提前以 `deadline of` 结束；400 照常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，并先清掉这些变量以及 `*_PROXY`。
+有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices`、回复为空或只有推理内容的 200 的重试，以及连续五次空回复。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500 或空回复，都会提前以 `deadline of` 结束；400 照常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，并先清掉这些变量以及 `*_PROXY`。
 
 <sub>来源: [tests.rs:8-97](../../src/tests.rs#L8-L97) · [tests.rs:141-196](../../src/tests.rs#L141-L196) · [tests.rs:176-461](../../src/tests.rs#L176-L461) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
 
@@ -259,17 +259,17 @@ stamp 后的 `package.json` 和 `checksums.json` 只存在于 runner 上，从�
 
 本页由 Codocia 根据代码自动生成，每次 build 重新计算：功能区划分、各区自带的说明、区之间的 import 依赖，以及讲解各区的页面。
 
-范围内共 12 个文件，1,856 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
+范围内共 12 个文件，1,895 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
 
 ### 文件结构
 
 **仓库根目录**
 
-- （根目录文件） — 237 行，3 个文件。A minimal agent loop: one model, one shell tool.\
+- （根目录文件） — 239 行，3 个文件。A minimal agent loop: one model, one shell tool.\
   讲解：[概览](#overview) (2), [用法与配置](#usage) (1), [构建、发布与贡献](#contributing) (1)
 - `.github/` — 198 行，2 个文件\
   讲解：[构建、发布与贡献](#contributing) (3)
-- `src/` — 1,259 行，2 个文件\
+- `src/` — 1,296 行，2 个文件\
   核心文件：`main.rs` `tests.rs`\
   讲解：[概览](#overview) (3), [用法与配置](#usage) (6), [工作原理](#how-it-works) (9), [构建、发布与贡献](#contributing) (3)
 
