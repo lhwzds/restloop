@@ -102,6 +102,13 @@ before the request is sent again.
 There is no sandbox and no confirmation: commands run with your permissions in
 the current directory. Run it in a container or a throwaway checkout when that matters.
 
+RestLoop's own settings are no longer passed in commands' environment: no `RESTLOOP_*`
+variable reaches them (the key, the key file, the URL or any other `RESTLOOP_*` name; on
+Windows the match ignores case). Commands inherit everything else, including any copy of
+the key under another name. A command running as the same user can still reach RestLoop's
+environment (for example `/proc/$PPID/environ` or `ps -E`) or read the key file if it knows
+the path; a sandbox or another user is the real fix.
+
 ## History
 
 RestLoop was called RestFlow up to version 0.5, a much larger agent CLI with

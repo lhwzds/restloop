@@ -6,7 +6,7 @@ title: restloop — 全书单页
 
 <sub>[English](../all.md) · **中文**</sub>
 
-这份文档比 README 更深入一层，介绍 RestLoop：一个单文件的 Rust agent 循环，只给模型提供一个 `shell` 工具。内容对应 v0.3.1。与 v0.3.0 相比，模型的空回复会重试，而不是直接结束运行；把回复写入 `RESTLOOP_LAST_MESSAGE` 或清理旧推理时，只去掉开头的 `<think>` 块（标准输出打印完整回复）。建议按顺序阅读：RestLoop 是什么以及第一次运行；完整的命令行与环境变量接口；循环、HTTP 客户端和命令执行器如何工作以及为什么这样设计；最后是二进制如何构建和发布，以及如何修改代码。
+这份文档比 README 更深入一层，介绍 RestLoop：一个单文件的 Rust agent 循环，只给模型提供一个 `shell` 工具。内容对应 v0.3.2。与 v0.3.1 相比，命令的环境里不再有任何 `RESTLOOP_*` 变量，kill 命令的进程组时也不再启动 shell。建议按顺序阅读：RestLoop 是什么以及第一次运行；完整的命令行与环境变量接口；循环、HTTP 客户端和命令执行器如何工作以及为什么这样设计；最后是二进制如何构建和发布，以及如何修改代码。
 
 <a id="overview"></a>
 
@@ -25,7 +25,7 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 - **没有配置文件，也没有数据库。** 所有选项都是在用到时才读取的环境变量；RestLoop 自己只会写可选的 session 文件和最终回复文件（见 [用法与配置](#usage)）。
 - **没有沙箱，也没有确认。** 命令以你的权限在当前目录执行。隔离由调用方负责：用容器或一次性的 checkout。
 
-<sub>来源: [main.rs:82-99](../../src/main.rs#L82-L99) · [main.rs:123-128](../../src/main.rs#L123-L128) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>来源: [main.rs:83-100](../../src/main.rs#L83-L100) · [main.rs:124-129](../../src/main.rs#L124-L129) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ### 第一次运行
 
@@ -40,7 +40,7 @@ restloop "make the failing test pass"
 
 用其他服务商时，把 `RESTLOOP_BASE_URL` 设为 `/chat/completions` 之前的那部分。退出码和所有选项见 [用法与配置](#usage)。
 
-<sub>来源: [README.md:19-26](../../README.md#L19-L26) · [README.md:31-39](../../README.md#L31-L39) · [main.rs:318-319](../../src/main.rs#L318-L319)</sub>
+<sub>来源: [README.md:19-26](../../README.md#L19-L26) · [README.md:31-39](../../README.md#L31-L39) · [main.rs:319-320](../../src/main.rs#L319-L320)</sub>
 
 <a id="usage"></a>
 
@@ -48,7 +48,7 @@ restloop "make the failing test pass"
 
 RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命令行选项。其余的一切就是任务文本和环境变量。本页列出完整的接口；[工作原理](#how-it-works) 解释每个选项对循环有什么影响。
 
-<sub>来源: [main.rs:15-27](../../src/main.rs#L15-L27)</sub>
+<sub>来源: [main.rs:16-28](../../src/main.rs#L16-L28)</sub>
 
 ### 单个任务或 stdin 会话
 
@@ -59,7 +59,7 @@ RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命
 
 状态 2 表示根本没有开始运行：`RESTLOOP_MODEL` 未设置，或者 `RESTLOOP_SESSION` 指向的文件不是 session 文件。
 
-<sub>来源: [main.rs:15-27](../../src/main.rs#L15-L27) · [main.rs:29-62](../../src/main.rs#L29-L62)</sub>
+<sub>来源: [main.rs:16-28](../../src/main.rs#L16-L28) · [main.rs:30-63](../../src/main.rs#L30-L63)</sub>
 
 ### 环境变量
 
@@ -80,7 +80,13 @@ RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命
 
 数值无法解析为无符号整数时，会静默回退到默认值（`env_num`）。`RESTLOOP_LOG_USAGE` 必须恰好是 `1`；对 key 文件和推理强度来说，空字符串等同于未设置。
 
-<sub>来源: [main.rs:10-13](../../src/main.rs#L10-L13) · [main.rs:109-121](../../src/main.rs#L109-L121) · [main.rs:129-137](../../src/main.rs#L129-L137) · [main.rs:313-350](../../src/main.rs#L313-L350) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [main.rs:11-14](../../src/main.rs#L11-L14) · [main.rs:110-122](../../src/main.rs#L110-L122) · [main.rs:130-138](../../src/main.rs#L130-L138) · [main.rs:314-351](../../src/main.rs#L314-L351) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+
+### 命令会继承什么
+
+RestLoop 自己的设置不再传入命令的环境：命令启动前会去掉所有 `RESTLOOP_*` 名称（`restloop_var`），所以 key、key 文件和 URL 都不会传给命令；在 Windows 上匹配不区分大小写。其他变量命令都会继承，包括以其他名字保存的 key 副本。以同一用户运行的命令仍然可以读到 restloop 的环境（`/proc/$PPID/environ`、`ps -E`），知道路径时也能读 key 文件；真正的解决办法是沙箱或换一个用户。
+
+<sub>来源: [main.rs:555-567](../../src/main.rs#L555-L567) · [main.rs:604-609](../../src/main.rs#L604-L609) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
 
 ### stdout 和 stderr 各输出什么
 
@@ -94,13 +100,13 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 服务商没有返回的字段打印为 `null`。
 
-<sub>来源: [main.rs:148-162](../../src/main.rs#L148-L162) · [main.rs:185-210](../../src/main.rs#L185-L210) · [main.rs:141-144](../../src/main.rs#L141-L144)</sub>
+<sub>来源: [main.rs:149-163](../../src/main.rs#L149-L163) · [main.rs:186-211](../../src/main.rs#L186-L211) · [main.rs:142-145](../../src/main.rs#L142-L145)</sub>
 
 ### 最终回复文件
 
 设置 `RESTLOOP_LAST_MESSAGE=<path>` 后，每个任务开始时先删除该文件；当模型不调用工具直接回复时，把回复文本加上末尾换行写入该文件。对于把推理内容内联在回复里的模型，开头的 `<think>` 块会被截掉，截到第一个 `</think>` 为止（没有闭合时什么都不剩）；其他回复即使引用了 `</think>` 也会完整写入。两种情况都会去掉首尾空白。删除只是尽力而为（错误会被忽略），所以提前结束的运行（步数上限、API 错误、被 kill）通常不会留下文件，而不是留下上一次的答案；需要确定性时，每次运行都传一个新路径。
 
-<sub>来源: [main.rs:131-136](../../src/main.rs#L131-L136) · [main.rs:175-183](../../src/main.rs#L175-L183) · [main.rs:300-308](../../src/main.rs#L300-L308) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
+<sub>来源: [main.rs:132-137](../../src/main.rs#L132-L137) · [main.rs:176-184](../../src/main.rs#L176-L184) · [main.rs:301-309](../../src/main.rs#L301-L309) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
 ### Session 文件：恢复与分叉
 
@@ -114,7 +120,7 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 用同一路径再次运行即可恢复；先复制文件就是分叉。保存的系统 prompt 原样复用。设置了 `RESTLOOP_DEADLINE` 时，恢复后的任务末尾会追加 `[You have Ns in total for this request; the time used in tool results counts from now.]`。每一步之后都会通过 `<path>.<pid>.tmp` 重命名来替换文件，所以进程被 kill 后，文件里保存的是最后一个完整的步骤。并发运行不会损坏文件，但最后写入的会覆盖前面的。
 
-<sub>来源: [main.rs:28-29](../../src/main.rs#L28-L29) · [main.rs:63-80](../../src/main.rs#L63-L80) · [main.rs:216-229](../../src/main.rs#L216-L229) · [README.md:62-79](../../README.md#L62-L79) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>
+<sub>来源: [main.rs:29-30](../../src/main.rs#L29-L30) · [main.rs:64-81](../../src/main.rs#L64-L81) · [main.rs:217-230](../../src/main.rs#L217-L230) · [README.md:62-79](../../README.md#L62-L79) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>
 
 <a id="how-it-works"></a>
 
@@ -134,7 +140,7 @@ flowchart TD
   G -->|limit reached| H["Err: stopped after N steps"]
 ```
 
-<sub>来源: [main.rs:123-128](../../src/main.rs#L123-L128) · [main.rs:137-147](../../src/main.rs#L137-L147) · [main.rs:212-214](../../src/main.rs#L212-L214)</sub>
+<sub>来源: [main.rs:124-129](../../src/main.rs#L124-L129) · [main.rs:138-148](../../src/main.rs#L138-L148) · [main.rs:213-215](../../src/main.rs#L213-L215)</sub>
 
 ### 对话里有什么
 
@@ -142,7 +148,7 @@ flowchart TD
 
 每个工具调用对应一条 `tool` 消息，带上匹配的 `tool_call_id`。参数不是带 `command` 字符串的 JSON 时，返回一条引用了原参数的错误，让模型自行纠正。
 
-<sub>来源: [main.rs:82-99](../../src/main.rs#L82-L99) · [main.rs:158-174](../../src/main.rs#L158-L174) · [main.rs:185-210](../../src/main.rs#L185-L210)</sub>
+<sub>来源: [main.rs:83-100](../../src/main.rs#L83-L100) · [main.rs:159-175](../../src/main.rs#L159-L175) · [main.rs:186-211](../../src/main.rs#L186-L211)</sub>
 
 ### 请求与重试
 
@@ -150,7 +156,7 @@ flowchart TD
 
 网络错误（包括无法读取的 body）、HTTP 429、HTTP 5xx，没有 `choices[0].message` 的 HTTP 200（MiniMax 的某些错误，`333b7b64`），以及空回复（没有工具调用，除开头的 `<think>` 块外也没有文字）都会重试：总共五次尝试，中间分别等待 2、4、8、16 s，并打印 `restloop: <what>, retrying`；第五次仍为空的回复就作为最终回复。body 中出现 `insufficient_quota` 或 `subscription_sharing_usage_limit_exceeded` 时立即失败，除非回复为空。其他状态码和第五次失败都会让任务以 `<what>: <text>` 失败（`HTTP <status>`、`request failed` 或 `no reply`），或用下文的 deadline 格式。不是 JSON 的 200 会立即以 `bad response` 失败。
 
-<sub>来源: [main.rs:313-422](../../src/main.rs#L313-L422) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
+<sub>来源: [main.rs:314-423](../../src/main.rs#L314-L423) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
 ### Responses API
 
@@ -158,7 +164,7 @@ flowchart TD
 
 `responses_reply()` 读取事件流直到 `response.completed`，构造出一条 chat 回复：文本（或拒绝内容）、工具调用、改用 chat 名称的用量，以及 `output_items`，即按 `output_index` 排序、去掉了 message 和 call id 的输出。这些项会原样发回，因此推理内容无需服务端存储也能保留。事件流中断或提前结束时会重试；流中报告的失败（`response.failed`、`response.incomplete`、`error`）只有在是 `server_error`、`rate_limit` 或 `unavailable` 时才重试。
 
-<sub>来源: [main.rs:317-332](../../src/main.rs#L317-L332) · [main.rs:355-360](../../src/main.rs#L355-L360) · [main.rs:383-397](../../src/main.rs#L383-L397) · [main.rs:436-549](../../src/main.rs#L436-L549)</sub>
+<sub>来源: [main.rs:318-333](../../src/main.rs#L318-L333) · [main.rs:356-361](../../src/main.rs#L356-L361) · [main.rs:384-398](../../src/main.rs#L384-L398) · [main.rs:437-550](../../src/main.rs#L437-L550)</sub>
 
 ### 上下文窗口满了之后的恢复
 
@@ -166,13 +172,13 @@ flowchart TD
 
 匹配成功后，`drop_old_output()` 把尚未缩短的 `tool` 消息中较早的一半（向上取整）缩成它们的第一行加上 `[output removed to fit the context window]`，用 `trim_thinking()` 清空旧的推理内容，然后重试请求。每次重试都会把剩下的再减半；没有可改动的内容时，返回该错误。命令和可见的回复都会保留，所以模型仍然知道自己做过什么。
 
-<sub>来源: [main.rs:138-147](../../src/main.rs#L138-L147) · [main.rs:268-311](../../src/main.rs#L268-L311) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
+<sub>来源: [main.rs:139-148](../../src/main.rs#L139-L148) · [main.rs:269-312](../../src/main.rs#L269-L312) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
 ### 清空旧的推理内容
 
 `trim_thinking()` 会清空除最后两条之外所有 assistant 消息的推理内容：`reasoning_content` 变为 `""`，`output_items` 中的 `reasoning` 项被删除（message 项保留其 phase），`content` 开头的 `<think>` 块被截掉。自 `70f40924` 起，这个 key 会保留并置为空值，而不是删除，因为 DeepSeek 的思考模式在工具轮次中的 assistant 消息缺少该字段时会返回 HTTP 400。已经清空过的消息不算作有改动，因此反复的溢出重试一定会终止。
 
-<sub>来源: [main.rs:235-266](../../src/main.rs#L235-L266) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [main.rs:236-267](../../src/main.rs#L236-L267) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ### 时间预算
 
@@ -185,13 +191,13 @@ flowchart TD
 
 时间从进程启动开始计算：在 stdin 模式下，同一个预算覆盖所有任务。
 
-<sub>来源: [main.rs:83-95](../../src/main.rs#L83-L95) · [main.rs:98-108](../../src/main.rs#L98-L108) · [main.rs:191-202](../../src/main.rs#L191-L202) · [main.rs:347-355](../../src/main.rs#L347-L355) · [main.rs:401-414](../../src/main.rs#L401-L414) · +2</sub>
+<sub>来源: [main.rs:84-96](../../src/main.rs#L84-L96) · [main.rs:99-109](../../src/main.rs#L99-L109) · [main.rs:192-203](../../src/main.rs#L192-L203) · [main.rs:348-356](../../src/main.rs#L348-L356) · [main.rs:402-415](../../src/main.rs#L402-L415) · +2</sub>
 
 ### 执行一条命令
 
 每条命令都在当前目录下一个全新的 shell 中执行：Unix 上用 `sh -c`；Windows 上，如果 `ProgramFiles` 或 `ProgramFiles(x86)` 下存在 `Git\bin\bash.exe` 就用它（模型写的是 bash；PowerShell 5.1 会加 BOM），否则用 `powershell -NoProfile -NonInteractive` 并设置 UTF-8 输出。stdin 为 null，并设置了 `GIT_TERMINAL_PROMPT=0`，所以不会有任何东西等待输入；`PYTHONUTF8=1` 让 Python 的 I/O 保持 UTF-8。
 
-shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超时；之后整个进程组（Windows 上是 job object）会被 kill，而 `exit:` 报告的仍是 shell 自身的退出码。后台服务只要不再占用这些管道就能继续运行，例如把输出重定向（`server > log 2>&1 &`）。超时会 kill 整个进程组；在 Unix 上，已脱离进程组的子进程不会被 kill。在 Unix 上，两种 kill 都使用 shell 内建的 `kill -9 -<pgid>`（精简容器里经常没有 `/bin/kill`）；Windows 上用 `TerminateJobObject`。
+shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超时；之后整个进程组（Windows 上是 job object）会被 kill，而 `exit:` 报告的仍是 shell 自身的退出码。后台服务只要不再占用这些管道就能继续运行，例如把输出重定向（`server > log 2>&1 &`）。超时会 kill 整个进程组；在 Unix 上，已脱离进程组的子进程不会被 kill。在 Unix 上，kill 直接向进程组发信号，不再启动 shell；Windows 上用 `TerminateJobObject`。继承哪些变量见 [用法与配置](#usage)。
 
 <sub>来源: [main.rs:551-641](../../src/main.rs#L551-L641) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
@@ -199,7 +205,7 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 
 命令的工具结果第一行是 `exit: <status>`，后面是合并后的输出。有两种例外：参数无效时返回 `error: arguments must be JSON…`，shell 无法启动时返回 `error: <reason>`。status 是退出码；如果 shell 被信号终止则为 `killed`，超时则为 `timeout after Ns`。超过 10,000 个字符（`MAX_OUTPUT`）的输出只保留开头和结尾各 5,000 个字符，中间插入 `... [N chars truncated] ...`。无效的 UTF-8 会被替换。
 
-<sub>来源: [main.rs:633-654](../../src/main.rs#L633-L654)</sub>
+<sub>来源: [main.rs:655-676](../../src/main.rs#L655-L676)</sub>
 
 <a id="contributing"></a>
 
@@ -209,15 +215,15 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 
 测试位于 `src/tests.rs`，用 `cargo test` 运行；`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 pull request 时，在 macOS、Linux 和 Windows 上运行 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 和测试。提 pull request 之前，请先在本地跑一遍这三条命令。另有一个在 Linux 上运行的 `docs` job，检出完整历史（`fetch-depth: 0`，这样引用的 commit 才能找到），安装 Codocia 0.2 并运行 `codocia check`，所以过时的文档或 `README_CN.md` 会让 CI 失败。
 
-<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:612-619](../../src/main.rs#L612-L619) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
+<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:634-641](../../src/main.rs#L634-L641) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
 
 ### 测试覆盖了什么
 
 单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
 
-有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices`、回复为空或只有推理内容的 200 的重试，以及连续五次空回复。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500 或空回复，都会提前以 `deadline of` 结束；400 照常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，并先清掉这些变量以及 `*_PROXY`。
+有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices`、回复为空或只有推理内容的 200 的重试，以及连续五次空回复。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500 或空回复，都会提前以 `deadline of` 结束；400 正常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，先清掉这些变量以及 `*_PROXY`，并检查命令拿不到其中任何一个。
 
-<sub>来源: [tests.rs:8-97](../../src/tests.rs#L8-L97) · [tests.rs:141-196](../../src/tests.rs#L141-L196) · [tests.rs:176-461](../../src/tests.rs#L176-L461) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
+<sub>来源: [tests.rs:12-101](../../src/tests.rs#L12-L101) · [tests.rs:145-200](../../src/tests.rs#L145-L200) · [tests.rs:180-465](../../src/tests.rs#L180-L465) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
 
 ### 修改循环
 
@@ -228,7 +234,7 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 - **保持 prompt 前缀稳定。** 任何改写早先消息的操作都会破坏服务商的 prompt 缓存；RestLoop 只在服务商报告溢出时才这样做。基于阈值的裁剪在一次 A/B 测试显示没有收益后已被移除（`f09603f4`）。
 - **程序保持一个文件、两个依赖。** 程序就是 `src/main.rs`，测试在 `src/tests.rs`。程序的小巧和可读性正是意义所在。
 
-<sub>来源: [main.rs:115-121](../../src/main.rs#L115-L121) · [tests.rs:1-6](../../src/tests.rs#L1-L6) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [main.rs:116-122](../../src/main.rs#L116-L122) · [tests.rs:1-6](../../src/tests.rs#L1-L6) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ### 如何发布一个版本
 
@@ -259,19 +265,19 @@ stamp 后的 `package.json` 和 `checksums.json` 只存在于 runner 上，从�
 
 本页由 Codocia 根据代码自动生成，每次 build 重新计算：功能区划分、各区自带的说明、区之间的 import 依赖，以及讲解各区的页面。
 
-范围内共 12 个文件，1,895 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
+范围内共 12 个文件，2,028 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
 
 ### 文件结构
 
 **仓库根目录**
 
-- （根目录文件） — 239 行，3 个文件。A minimal agent loop: one model, one shell tool.\
+- （根目录文件） — 252 行，3 个文件。A minimal agent loop: one model, one shell tool.\
   讲解：[概览](#overview) (2), [用法与配置](#usage) (1), [构建、发布与贡献](#contributing) (1)
 - `.github/` — 198 行，2 个文件\
   讲解：[构建、发布与贡献](#contributing) (3)
-- `src/` — 1,296 行，2 个文件\
+- `src/` — 1,416 行，2 个文件\
   核心文件：`main.rs` `tests.rs`\
-  讲解：[概览](#overview) (3), [用法与配置](#usage) (6), [工作原理](#how-it-works) (9), [构建、发布与贡献](#contributing) (3)
+  讲解：[概览](#overview) (3), [用法与配置](#usage) (7), [工作原理](#how-it-works) (9), [构建、发布与贡献](#contributing) (3)
 
 **`npm/`**
 

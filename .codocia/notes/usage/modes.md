@@ -2,8 +2,8 @@
 title: One task or a stdin session
 order: 10
 evidence:
-  - src/main.rs:15-27 #0fedf36d74e1
-  - src/main.rs:29-62 #56e59ea6e727
+  - src/main.rs:16-28 #0fedf36d74e1
+  - src/main.rs:30-63 #56e59ea6e727
 ---
 
 All arguments are joined with spaces into one task: `restloop fix the build` and `restloop "fix the build"` are the same.

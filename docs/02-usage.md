@@ -8,7 +8,7 @@ title: Usage and configuration
 
 RestLoop has no flags except `-h`/`--help`, which prints the list of environment variables. Everything else is the task text and the environment. This page lists the exact interface; [How it works](03-how-it-works.md) explains what each option does to the loop.
 
-<sub>Sources: [main.rs:15-27](../src/main.rs#L15-L27)</sub>
+<sub>Sources: [main.rs:16-28](../src/main.rs#L16-L28)</sub>
 
 ## One task or a stdin session
 
@@ -19,7 +19,7 @@ All arguments are joined with spaces into one task: `restloop fix the build` and
 
 Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SESSION` names a file that is not a session.
 
-<sub>Sources: [main.rs:15-27](../src/main.rs#L15-L27) · [main.rs:29-62](../src/main.rs#L29-L62)</sub>
+<sub>Sources: [main.rs:16-28](../src/main.rs#L16-L28) · [main.rs:30-63](../src/main.rs#L30-L63)</sub>
 
 ## Environment variables
 
@@ -40,7 +40,13 @@ Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SE
 
 Numbers that do not parse as an unsigned integer silently fall back to the default (`env_num`). `RESTLOOP_LOG_USAGE` must be exactly `1`; empty strings count as unset for the key file and the effort.
 
-<sub>Sources: [main.rs:10-13](../src/main.rs#L10-L13) · [main.rs:109-121](../src/main.rs#L109-L121) · [main.rs:129-137](../src/main.rs#L129-L137) · [main.rs:313-350](../src/main.rs#L313-L350) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>Sources: [main.rs:11-14](../src/main.rs#L11-L14) · [main.rs:110-122](../src/main.rs#L110-L122) · [main.rs:130-138](../src/main.rs#L130-L138) · [main.rs:314-351](../src/main.rs#L314-L351) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+
+## What commands inherit
+
+Restloop's own settings are no longer passed in commands' environment: every `RESTLOOP_*` name is removed before a command starts (`restloop_var`), so the key, the key file and the URL do not reach it; on Windows the match ignores case. Commands inherit everything else, including any copy of the key under another name. A command running as the same user can still reach restloop's environment (`/proc/$PPID/environ`, `ps -E`) or read the key file if it knows the path; a sandbox or another user is the real fix.
+
+<sub>Sources: [main.rs:555-567](../src/main.rs#L555-L567) · [main.rs:604-609](../src/main.rs#L604-L609) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
 
 ## What goes to stdout and stderr
 
@@ -54,13 +60,13 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 Fields the provider does not report print as `null`.
 
-<sub>Sources: [main.rs:148-162](../src/main.rs#L148-L162) · [main.rs:185-210](../src/main.rs#L185-L210) · [main.rs:141-144](../src/main.rs#L141-L144)</sub>
+<sub>Sources: [main.rs:149-163](../src/main.rs#L149-L163) · [main.rs:186-211](../src/main.rs#L186-L211) · [main.rs:142-145](../src/main.rs#L142-L145)</sub>
 
 ## The final-reply file
 
 With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, when the model replies without a tool call, writes the reply text to it with a trailing newline. For models that inline their reasoning, a leading `<think>` block is cut off up to the first `</think>` (unclosed, nothing is left); any other reply is written whole, even if it quotes `</think>`. Surrounding whitespace is trimmed either way. The delete is best-effort (errors are ignored), so a run that ends early (step limit, API error, kill) usually leaves no file rather than the previous answer; for certainty, pass a fresh path on every run.
 
-<sub>Sources: [main.rs:131-136](../src/main.rs#L131-L136) · [main.rs:175-183](../src/main.rs#L175-L183) · [main.rs:300-308](../src/main.rs#L300-L308) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
+<sub>Sources: [main.rs:132-137](../src/main.rs#L132-L137) · [main.rs:176-184](../src/main.rs#L176-L184) · [main.rs:301-309](../src/main.rs#L301-L309) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
 ## Session files: resume and fork
 
@@ -74,4 +80,4 @@ With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, wh
 
 Run again with the same path to resume; copy the file first to fork. The saved system prompt is reused unchanged. With `RESTLOOP_DEADLINE`, a resumed task gets `[You have Ns in total for this request; the time used in tool results counts from now.]` appended. The file is replaced after every step through a `<path>.<pid>.tmp` rename, so after a kill it holds the last complete step. Concurrent runs never corrupt it, but the last writer wins.
 
-<sub>Sources: [main.rs:28-29](../src/main.rs#L28-L29) · [main.rs:63-80](../src/main.rs#L63-L80) · [main.rs:216-229](../src/main.rs#L216-L229) · [README.md:62-79](../README.md#L62-L79) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>
+<sub>Sources: [main.rs:29-30](../src/main.rs#L29-L30) · [main.rs:64-81](../src/main.rs#L64-L81) · [main.rs:217-230](../src/main.rs#L217-L230) · [README.md:62-79](../README.md#L62-L79) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>

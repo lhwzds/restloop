@@ -2,9 +2,9 @@
 title: What the conversation holds
 order: 10
 evidence:
-  - src/main.rs:82-99 #63a11ef22315
-  - src/main.rs:158-174 #07c5f773336d
-  - src/main.rs:185-210 #8c6d3e5de5e6
+  - src/main.rs:83-100 #63a11ef22315
+  - src/main.rs:159-175 #07c5f773336d
+  - src/main.rs:186-211 #8c6d3e5de5e6
 ---
 
 The system prompt from `system_prompt()` comes first: instructions plus OS, shell, working directory, command timeout and, with a deadline, the budget. Then come user tasks and, per model reply, an assistant message keeping only `content`, `tool_calls` and, when present, `reasoning_content` and the Responses API's `output_items`.

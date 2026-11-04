@@ -2,13 +2,13 @@
 title: Session files: resume and fork
 order: 50
 evidence:
-  - src/main.rs:28-29 #f5d692c0b065
-  - src/main.rs:63-80 #b06e4077185e
-  - src/main.rs:216-229 #3f74ef231148
+  - src/main.rs:29-30 #f5d692c0b065
+  - src/main.rs:64-81 #b06e4077185e
+  - src/main.rs:217-230 #3f74ef231148
   - README.md:62-79 #13e3ca92648b
   - commit:ffd11c37
   - commit:4c468f27
-  - src/main.rs:33-38 #28c49aae845e
+  - src/main.rs:34-39 #28c49aae845e
 ---
 
 `RESTLOOP_SESSION=<path>` persists the conversation as JSON:

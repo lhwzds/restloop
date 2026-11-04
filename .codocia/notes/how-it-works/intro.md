@@ -1,10 +1,10 @@
 ---
-title:
+title: 
 order: 0
 evidence:
-  - src/main.rs:123-128 #e6a6524cff9c
-  - src/main.rs:137-147 #e9aed182c6f9
-  - src/main.rs:212-214 #6ebd9760f8d2
+  - src/main.rs:124-129 #e6a6524cff9c
+  - src/main.rs:138-148 #e9aed182c6f9
+  - src/main.rs:213-215 #6ebd9760f8d2
 ---
 
 Everything happens in `run()`: one iteration (a step) is one model reply plus the commands it requested.
