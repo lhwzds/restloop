@@ -1,6 +1,7 @@
 //! restloop: a minimal agent loop. One model, one shell tool.
 
 use serde_json::{Value, json};
+use std::ffi::OsStr;
 use std::io::{BufRead, Read};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -548,6 +549,21 @@ fn responses_reply(stream: impl BufRead) -> Result<Value, String> {
     Err("the event stream ended without a response".into())
 }
 
+/// Is this environment name one of restloop's own settings? Windows matches
+/// names without regard to case, so a key spelled `Restloop_Api_Key` reaches
+/// restloop there and must be caught too; elsewhere names are exact.
+fn restloop_var(name: &OsStr) -> bool {
+    let name = name.as_encoded_bytes();
+    let prefix = b"RESTLOOP_";
+    if name.len() < prefix.len() {
+        return false;
+    }
+    #[cfg(windows)]
+    return name[..prefix.len()].eq_ignore_ascii_case(prefix);
+    #[cfg(not(windows))]
+    return name.starts_with(prefix);
+}
+
 /// The shell commands run in: sh, or on Windows Git Bash when installed (None: PowerShell).
 fn shell_path() -> Option<String> {
     if !cfg!(windows) {
@@ -585,6 +601,12 @@ fn shell(cmd: &str, secs: u64) -> String {
         .stderr(Stdio::piped())
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("PYTHONUTF8", "1");
+    // The model's commands get none of restloop's own settings (the key, its file, the URL).
+    for (k, _) in env::vars_os() {
+        if restloop_var(&k) {
+            c.env_remove(k);
+        }
+    }
     let mut child = match c.spawn() {
         Ok(child) => child,
         Err(e) => return format!("error: {e}"),
@@ -622,12 +644,12 @@ fn shell(cmd: &str, secs: u64) -> String {
         if Instant::now() > deadline {
             #[cfg(windows)]
             job.kill();
-            // The shell's own kill: slim containers often have no /bin/kill. Killing
-            // the child as well means wait() cannot hang even if that fails.
+            // The process group is signalled directly: no shell is started.
+            // Killing the child as well means wait() cannot hang even if that fails.
             #[cfg(unix)]
-            let _ = Command::new("sh")
-                .args(["-c", &format!("kill -9 -{}", child.id())])
-                .output();
+            unsafe {
+                kill(-(child.id() as i32), 9)
+            };
             let _ = child.kill();
             let _ = child.wait();
             status.get_or_insert(format!("timeout after {secs}s"));
@@ -688,6 +710,12 @@ mod win {
             unsafe { CloseHandle(self.0) };
         }
     }
+}
+
+// The timeout path kills the process group itself; no libc dependency.
+#[cfg(unix)]
+unsafe extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
 }
 
 #[cfg(test)]

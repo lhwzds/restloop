@@ -5,6 +5,10 @@ use super::*;
 use std::io::{BufReader, Write};
 use std::net::TcpListener;
 
+/// A restloop setting spelled in mixed case: the same name as RESTLOOP_API_KEY on
+/// Windows (which reads names without regard to case), a different one elsewhere.
+const MIXED_CASE: &str = "Restloop_Mixed_Case";
+
 #[test]
 fn answer_strips_only_a_leading_think_block() {
     assert_eq!(answer("<think>a</think>b"), "b");
@@ -594,9 +598,97 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     assert!(start.elapsed() < Duration::from_secs(10));
     assert!(bodies.lock().unwrap().len() <= 2);
 
+    // The key, the path to it and the URL (which can hold user:token) must not
+    // reach the model's commands. var_os keeps a value that is not valid UTF-8,
+    // so restoring it afterwards does not drop it.
+    let old_key = env::var_os("RESTLOOP_API_KEY");
+    let old_key_file = env::var_os("RESTLOOP_API_KEY_FILE");
+    let old_url = env::var_os("RESTLOOP_BASE_URL");
+    let old_mixed = env::var_os(MIXED_CASE);
+    unsafe {
+        env::set_var("RESTLOOP_API_KEY", "test-key-not-for-commands");
+        env::set_var("RESTLOOP_API_KEY_FILE", "/nonexistent/key-file");
+        env::set_var("RESTLOOP_BASE_URL", "http://user:token@127.0.0.1:1/v1");
+        env::set_var(MIXED_CASE, "mixed-case-restloop-name");
+    }
+    // Without Git Bash the commands run in PowerShell, where `env` is not a
+    // command: ask for the environment there in the same NAME=VALUE form.
+    // Only the RESTLOOP_ lines are printed: the whole environment can be longer
+    // than the output limit, which would cut a leaked line out of the middle of
+    // the output. grep exits 1 when it finds nothing, so `|| true` keeps the
+    // command's exit code at 0.
+    // Windows reads environment names without regard to case, so the grep is
+    // case-insensitive there: a leaked Restloop_... line must be caught too.
+    // Elsewhere names are exact and the mixed-case name is not restloop's.
+    let env_cmd = if shell_path().is_some() {
+        if cfg!(windows) {
+            "env | grep -i '^RESTLOOP_' || true; echo marker-ok"
+        } else {
+            "env | grep '^RESTLOOP_' || true; echo marker-ok"
+        }
+    } else {
+        "Get-ChildItem Env: | Where-Object { $_.Name -like 'RESTLOOP_*' } | ForEach-Object { \"$($_.Name)=$($_.Value)\" }; 'marker-ok'"
+    };
+    let out = shell(env_cmd, 10);
+    // The command must have run: a shell that failed to start, or an `env` that
+    // is not there, prints an error that would pass every check below.
+    assert!(out.starts_with("exit: 0\n"), "{out}");
+    assert!(out.contains("marker-ok"), "{out}");
+    assert!(!out.lines().any(|l| l.starts_with("RESTLOOP_")), "{out}");
+    assert!(!out.contains("test-key-not-for-commands"), "{out}");
+    // Windows reads environment names without regard to case, so the spelling
+    // Restloop_... names one of restloop's settings only there; anywhere else it
+    // is a different variable that restloop never reads.
+    if cfg!(windows) {
+        assert!(!out.contains("mixed-case-restloop-name"), "{out}");
+        assert!(
+            !out.lines()
+                .any(|l| l.to_ascii_uppercase().starts_with("RESTLOOP_")),
+            "{out}"
+        );
+    }
+    unsafe {
+        match old_key {
+            Some(k) => env::set_var("RESTLOOP_API_KEY", k),
+            None => env::remove_var("RESTLOOP_API_KEY"),
+        }
+        match old_key_file {
+            Some(k) => env::set_var("RESTLOOP_API_KEY_FILE", k),
+            None => env::remove_var("RESTLOOP_API_KEY_FILE"),
+        }
+        match old_url {
+            Some(u) => env::set_var("RESTLOOP_BASE_URL", u),
+            None => env::remove_var("RESTLOOP_BASE_URL"),
+        }
+        match old_mixed {
+            Some(m) => env::set_var(MIXED_CASE, m),
+            None => env::remove_var(MIXED_CASE),
+        }
+    }
+
     unsafe {
         env::remove_var("RESTLOOP_LAST_MESSAGE");
         env::remove_var("RESTLOOP_DEADLINE");
     }
     let _ = std::fs::remove_file(&last);
+}
+
+// Windows matches environment names without regard to case, so the prefix that is
+// stripped from a command's environment is matched the way each platform reads it:
+// a key spelled Restloop_Api_Key would reach restloop on Windows and must go too.
+#[test]
+fn restloop_settings_are_matched_the_way_the_platform_reads_names() {
+    assert!(restloop_var(OsStr::new("RESTLOOP_API_KEY")));
+    assert!(restloop_var(OsStr::new("RESTLOOP_")));
+    assert_eq!(
+        restloop_var(OsStr::new("Restloop_Mixed_Case")),
+        cfg!(windows)
+    );
+    assert_eq!(restloop_var(OsStr::new("restloop_api_key")), cfg!(windows));
+    assert!(!restloop_var(OsStr::new("RESTLOOP")));
+    // Any name with the prefix goes, known or not: a future setting must not leak.
+    assert!(restloop_var(OsStr::new("RESTLOOP_ANYTHING")));
+    assert!(!restloop_var(OsStr::new("MY_RESTLOOP_API_KEY")));
+    assert!(!restloop_var(OsStr::new("XRESTLOOP_API_KEY")));
+    assert!(!restloop_var(OsStr::new("")));
 }
