@@ -162,6 +162,112 @@ fn env_num(get: &impl Fn(&str) -> Option<String>, name: &str, default: u64) -> u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    /// The path a directory of a test has in the base dir: the name of the test,
+    /// the pid of the process and the number of the attempt. Another run may have
+    /// used the path already, so the guard has to be careful with it.
+    fn dir_path(base: &std::path::Path, name: &str, n: u64) -> std::path::PathBuf {
+        base.join(format!("restloop-{name}-{}-{n}", std::process::id()))
+    }
+
+    /// A directory of a test in the base dir, made for the test alone: the path
+    /// is one that nobody else has, so the test never takes a directory of
+    /// another run.
+    fn make_temp_dir(base: &std::path::Path, name: &str) -> std::path::PathBuf {
+        for n in 0..1000 {
+            let path = dir_path(base, name, n);
+            // The directory is made in one step: create_dir fails when the path
+            // is taken, so the directory of the test is never the one of another
+            // run, and nothing is taken away.
+            match std::fs::create_dir(&path) {
+                Ok(()) => return path,
+                // The path is taken: another name is asked for.
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("cannot make the directory of the test at {path:?}: {e}"),
+            }
+        }
+        panic!("cannot make a directory of the test in {base:?}");
+    }
+
+    /// A file of a test, removed when the test ends: an assertion that fails must
+    /// leave nothing behind. The file is made in a directory of the test alone
+    /// and with create_new, so the guard writes a file of its own and never takes
+    /// one that the test did not write.
+    struct TempFile {
+        // The directory of the test lives as long as the file: it is the guard
+        // that takes the directory away when the file is gone.
+        _dir: TempDir,
+        path: std::path::PathBuf,
+    }
+
+    impl TempFile {
+        /// A file of the test in a directory of its own, named after the test,
+        /// holding the text the test needs.
+        fn new(name: &str, text: &str) -> Self {
+            Self::in_dir(&env::temp_dir(), name, text)
+        }
+
+        /// A file of the test in a directory of its own in the base dir, named
+        /// after the test, holding the text the test needs.
+        fn in_dir(base: &std::path::Path, name: &str, text: &str) -> Self {
+            let dir = TempDir::in_dir(base, name);
+            let path = dir.0.join(name);
+            // create_new fails when the file is there: the guard never writes
+            // over a file of anyone else.
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .unwrap();
+            file.write_all(text.as_bytes()).unwrap();
+            Self { _dir: dir, path }
+        }
+
+        /// The path of the file of the test.
+        fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            // The file is the one the guard made: it goes when the test ends.
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    /// A directory of a test, removed when the test ends: an assertion that fails
+    /// must leave nothing behind. The directory is made for the test alone, so
+    /// the guard takes the directory it made, not one of anyone else. A path that
+    /// is not there is of a directory like this one: the guard takes the
+    /// directory it made, not a file of someone else.
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        /// A directory of the test in the temp dir, named after the test.
+        fn new(name: &str) -> Self {
+            Self::in_dir(&env::temp_dir(), name)
+        }
+
+        /// A directory of the test in the base dir, named after the test.
+        fn in_dir(base: &std::path::Path, name: &str) -> Self {
+            Self(make_temp_dir(base, name))
+        }
+
+        /// A path in the directory that holds no file: a test that needs a path
+        /// that is not there takes one from here.
+        fn missing(&self, name: &str) -> std::path::PathBuf {
+            self.0.join(name)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            // The directory is the one the guard made: it goes when the test ends.
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     /// A getter that answers from a list of settings.
     fn get(settings: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + Send + Sync + 'static {
@@ -265,16 +371,14 @@ mod tests {
     /// The key of a request: the file if there is one, else the variable.
     #[test]
     fn the_key_comes_from_the_file_when_there_is_one() {
-        let path = env::temp_dir().join(format!("restloop-key-file-{}", std::process::id()));
-        let file = path.to_string_lossy().to_string();
-        std::fs::write(&path, "from the file").unwrap();
+        let temp = TempFile::new("key-file", "from the file");
+        let file = temp.path().to_string_lossy().to_string();
         let key = key(get(&[
             ("RESTLOOP_API_KEY_FILE", file.as_str()),
             ("RESTLOOP_API_KEY", "from the variable"),
         ]))
         .unwrap();
         assert_eq!(key, "from the file");
-        std::fs::remove_file(&path).unwrap();
     }
 
     /// A key file that is not named is no file: the variable answers.
@@ -297,8 +401,10 @@ mod tests {
     /// A key file that cannot be read is an error, not an empty key.
     #[test]
     fn a_key_file_that_cannot_be_read_is_an_error() {
-        let path = env::temp_dir().join(format!("restloop-no-key-{}", std::process::id()));
-        let file = path.to_string_lossy().to_string();
+        // The file is not there: the path is of the directory of the test, so the
+        // guard of the test cannot take a file that is not its own.
+        let dir = TempDir::new("no-key");
+        let file = dir.missing("key-file").to_string_lossy().to_string();
         let e = key(get(&[("RESTLOOP_API_KEY_FILE", file.as_str())])).unwrap_err();
         assert!(e.contains("cannot read"), "{e}");
         assert!(e.contains(&file), "{e}");
@@ -307,13 +413,11 @@ mod tests {
     /// A session file of another version is no session: the CLI says so and stops.
     #[test]
     fn a_session_file_that_is_not_a_session_is_an_error() {
-        let path = env::temp_dir().join(format!("restloop-bad-session-{}", std::process::id()));
-        let file = path.to_string_lossy().to_string();
-        std::fs::write(
-            &path,
-            json!({"version": 2, "messages": [{"role": "user", "content": "hi"}]}).to_string(),
-        )
-        .unwrap();
+        let temp = TempFile::new(
+            "bad-session",
+            &json!({"version": 2, "messages": [{"role": "user", "content": "hi"}]}).to_string(),
+        );
+        let file = temp.path().to_string_lossy().to_string();
         let cfg = config(
             get(&[("RESTLOOP_MODEL", "m"), ("RESTLOOP_SESSION", file.as_str())]),
             Instant::now(),
@@ -321,14 +425,15 @@ mod tests {
         .unwrap();
         let e = conversation(&cfg).unwrap_err();
         assert_eq!(e, format!("{file} is not a restloop session"));
-        std::fs::remove_file(&path).unwrap();
     }
 
     /// A session file that is not there is a new conversation with the system prompt.
     #[test]
     fn a_session_that_is_not_there_is_a_new_conversation() {
-        let path = env::temp_dir().join(format!("restloop-no-session-{}", std::process::id()));
-        let file = path.to_string_lossy().to_string();
+        // The file is not there: the path is of the directory of the test, so the
+        // guard of the test cannot take a file that is not its own.
+        let dir = TempDir::new("no-session");
+        let file = dir.missing("session.json").to_string_lossy().to_string();
         let cfg = config(
             get(&[("RESTLOOP_MODEL", "m"), ("RESTLOOP_SESSION", file.as_str())]),
             Instant::now(),

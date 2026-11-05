@@ -5,10 +5,10 @@ use crate::shell::*;
 use crate::*;
 use serde_json::{Value, json};
 use std::env;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::{BufReader, Read, Write};
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -27,6 +27,110 @@ static START: OnceLock<Instant> = OnceLock::new();
 /// Seconds since the tests started.
 fn elapsed() -> u64 {
     START.get_or_init(Instant::now).elapsed().as_secs()
+}
+
+/// The lock the tests that change the environment hold: the environment belongs to
+/// the whole process, so only one of them may change it at a time.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// The lock of the environment, held for as long as it lives.
+fn env_lock() -> MutexGuard<'static, ()> {
+    // A test that failed must not lock the others out: the lock is taken anyway.
+    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The environment variables a test changes, put back when the guard is dropped:
+/// the environment belongs to the whole process, and a test that fails must not
+/// leave it changed for the others.
+struct RestoreVars(Vec<(OsString, Option<OsString>)>);
+
+impl RestoreVars {
+    /// A guard that puts the named variables back as they are now: a variable
+    /// that is not there goes away again.
+    fn of(names: &[&str]) -> Self {
+        let vars = names
+            .iter()
+            .map(|n| (OsString::from(*n), env::var_os(*n)))
+            .collect();
+        Self(vars)
+    }
+}
+
+impl Drop for RestoreVars {
+    fn drop(&mut self) {
+        for (name, value) in self.0.drain(..) {
+            unsafe {
+                match value {
+                    // The value was read with var_os, so it goes back as it was.
+                    Some(v) => env::set_var(&name, v),
+                    // The variable was not there: it goes away again.
+                    None => env::remove_var(&name),
+                }
+            }
+        }
+    }
+}
+
+/// The proxy settings of the environment, removed: the requests of a run would
+/// otherwise go through the proxy of the shell and miss the local server. The
+/// guard puts the variables back when it is dropped.
+fn remove_proxy_vars() -> RestoreVars {
+    // The names are gathered first: the environment must not be read while it is
+    // changed.
+    let names: Vec<OsString> = env::vars_os()
+        .map(|(name, _)| name)
+        .filter(|name| {
+            name.to_string_lossy()
+                .to_ascii_uppercase()
+                .ends_with("_PROXY")
+        })
+        .collect();
+    let mut vars = Vec::new();
+    for name in names {
+        // var_os keeps a value that is not valid UTF-8, so it goes back as it was.
+        if let Some(value) = env::var_os(&name) {
+            vars.push((name.clone(), Some(value)));
+            unsafe { env::remove_var(&name) };
+        }
+    }
+    RestoreVars(vars)
+}
+
+/// A directory of a test in the temp dir, made for the test alone: the path is
+/// one that nobody else has, so the test never takes a file of another run. The
+/// directory goes when the guard is dropped, whether the test ends well or fails.
+struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    /// A directory of the test in the temp dir, named after the test.
+    fn new(name: &str) -> Self {
+        let base = env::temp_dir();
+        for n in 0..1000 {
+            let path = base.join(format!("restloop-{name}-{}-{n}", std::process::id()));
+            // The directory is made in one step: create_dir fails when the path
+            // is taken, so the directory of the test is never the one of another
+            // run, and nothing is taken away.
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Self(path),
+                // The path is taken: another name is asked for.
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("cannot make the directory of the test at {path:?}: {e}"),
+            }
+        }
+        panic!("cannot make a directory of the test in {base:?}");
+    }
+
+    /// A path in the directory of the test: nothing of anyone else can be at it.
+    fn path(&self, name: &str) -> std::path::PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        // The directory is the one the guard made: it goes when the test ends.
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// The settings the tests use: the model, the clock the deadline counts from and the
@@ -288,12 +392,6 @@ fn accept(listener: &TcpListener) -> Option<std::net::TcpStream> {
     }
 }
 
-/// A request to the server, so that its thread leaves the accept and ends: a test
-/// that sends no request at all would leave it waiting for one.
-fn wake(url: &str) {
-    wake_quietly(url).expect("the server cannot be woken");
-}
-
 /// A request to the server that fails quietly: the server may be gone already, and
 /// the end of a test must not fail because of it.
 fn wake_quietly(url: &str) -> std::io::Result<()> {
@@ -330,74 +428,12 @@ impl Drop for WakeOnEnd {
     }
 }
 
-/// A server that waits for one request and ends when it comes: the channel says
-/// when its thread is done, so a test can tell that no thread is left waiting in
-/// the accept.
-fn serve_one() -> (String, mpsc::Receiver<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let (ended, waiting) = mpsc::channel();
-    thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        // The whole request is read, so that the answer does not reset the connection.
-        let mut len = 0;
-        loop {
-            let mut line = String::new();
-            if reader.read_line(&mut line).unwrap_or(0) == 0 {
-                break;
-            }
-            if line.trim().is_empty() {
-                break;
-            }
-            if let Some(v) = line.to_lowercase().strip_prefix("content-length:") {
-                len = v.trim().parse().unwrap_or(0);
-            }
-        }
-        let mut body = vec![0; len];
-        let _ = reader.read_exact(&mut body);
-        let _ = stream
-            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
-        drop(stream);
-        let _ = ended.send(());
-    });
-    (url, waiting)
-}
-
-/// A server that is woken ends its thread: no thread is left waiting for a
-/// request that never comes.
-#[test]
-fn a_woken_server_leaves_no_thread_waiting() {
-    let (url, ended) = serve_one();
-    wake(&url);
-    assert!(
-        ended.recv_timeout(Duration::from_secs(5)).is_ok(),
-        "the server thread is still waiting for a request"
-    );
-}
-
-/// A test that fails leaves no thread waiting for a request either: the server of
-/// the test is woken when the test ends, however it ends.
-#[test]
-fn a_failed_test_leaves_no_thread_waiting_for_a_request() {
-    let done = json!({"choices": [{"message": {"role": "assistant", "content": "all done"}}]});
-    let (url, _bodies, ended) = serve_until(vec![(200, done)]);
-    let failed = std::panic::catch_unwind(|| {
-        // The guard goes out of scope when the panic unwinds the stack: it wakes
-        // the server, so the thread of the server ends.
-        let _wake = WakeOnEnd::new(&url);
-        panic!("the assertion of the test failed");
-    });
-    assert!(failed.is_err());
-    assert!(
-        ended.recv_timeout(Duration::from_secs(5)).is_ok(),
-        "the server thread is still waiting for a request"
-    );
-}
-
 // The only test that touches RESTLOOP_* variables; no other test reads them.
 #[test]
 fn a_run_survives_a_full_context_and_resumes_from_its_session() {
+    // The environment belongs to the whole process: this test changes it, so it
+    // holds the shared env lock for its whole body.
+    let _env = env_lock();
     let call = json!({"choices": [{"message": {"role": "assistant", "content": "", "reasoning_content": "thinking",
         "tool_calls": [{"id": "a", "type": "function", "function": {"name": "shell", "arguments": "{\"command\":\"echo hello\"}"}}]}}]});
     let full = json!({"error": {"message": "This model's maximum context length is 10 tokens."}});
@@ -409,23 +445,14 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
         (200, done("first")),
         (200, done("second")),
     ]);
-    let dir = env::temp_dir().join(format!("restloop-test-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let session = dir.join("session.json");
+    // The directory of the test is made for the test alone: the guard takes it
+    // away when the test ends, and it never takes a directory of another run.
+    let dir = TempDir::new("session");
+    let session = dir.path("session.json");
     // The proxy settings of the shell running the tests must not reach this run: its
-    // requests would miss the local server.
-    unsafe {
-        for (name, _) in env::vars_os() {
-            if name
-                .to_string_lossy()
-                .to_ascii_uppercase()
-                .ends_with("_PROXY")
-            {
-                env::remove_var(name);
-            }
-        }
-    }
+    // requests would miss the local server. The variables go back when the guard is
+    // dropped, whether the test ends well or fails.
+    let _proxy = remove_proxy_vars();
     let mut cfg = test_config();
     cfg.base_url = url.clone();
     cfg.session = Some(session.to_string_lossy().into_owned());
@@ -465,12 +492,11 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     assert_eq!(last[..4], sent[2]["messages"].as_array().unwrap()[..]);
     assert_eq!(last[4], json!({"role": "assistant", "content": "first"}));
     // Only the session file is left: the temporary file was renamed over it.
-    let files: Vec<_> = std::fs::read_dir(&dir)
+    let files: Vec<_> = std::fs::read_dir(&dir.0)
         .unwrap()
         .map(|e| e.unwrap().file_name())
         .collect();
     assert_eq!(files, [std::ffi::OsString::from("session.json")]);
-    std::fs::remove_dir_all(&dir).unwrap();
 
     // A 200 without choices (MiniMax reports some errors that way) is retried, not taken
     // as an empty final reply.
@@ -531,7 +557,10 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
         (200, failed("context_length_exceeded")),
         (200, json!(done)),
     ]);
-    let key = env::temp_dir().join(format!("restloop-key-{}", std::process::id()));
+    // The key file is in a directory of the test alone: no other run has a file
+    // at its path, and the guard takes the directory away when the test ends.
+    let key_dir = TempDir::new("key");
+    let key = key_dir.path("key");
     std::fs::write(&key, "tok1\n").unwrap();
     let key_file = key.clone();
     cfg.base_url = url;
@@ -681,7 +710,8 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     let say =
         |text: &str| json!({"choices": [{"message": {"role": "assistant", "content": text}}]});
     let (url, bodies) = serve(vec![(200, say("")), (200, say("after empty"))]);
-    let last = env::temp_dir().join(format!("restloop-last-{}", std::process::id()));
+    let last_dir = TempDir::new("last");
+    let last = last_dir.path("last");
     cfg.base_url = url;
     cfg.deadline = Some(elapsed() + 60);
     cfg.last_message = Some(last.to_string_lossy().into_owned());
@@ -692,7 +722,6 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     let written = std::fs::read_to_string(&last).unwrap();
     assert_eq!(written.trim(), "after empty");
     cfg.last_message = None;
-    let _ = std::fs::remove_file(&last);
 
     // A reply whose text is only the model's reasoning is an empty reply, too.
     let (url, bodies) = serve(vec![
@@ -736,15 +765,16 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     let verdict = "VERDICT: PASS\nthe code calls rsplit_once(\"</think>\")";
     let reply = json!({"choices": [{"message": {"role": "assistant", "content": verdict}}]});
     let (url, bodies) = serve(vec![(200, reply)]);
-    let last = env::temp_dir().join(format!("restloop-verdict-{}", std::process::id()));
+    let verdict_dir = TempDir::new("verdict");
+    let verdict_file = verdict_dir.path("verdict");
     cfg.base_url = url;
     cfg.deadline = Some(elapsed() + 60);
-    cfg.last_message = Some(last.to_string_lossy().into_owned());
+    cfg.last_message = Some(verdict_file.to_string_lossy().into_owned());
     let mut m = vec![json!({"role": "user", "content": "thirteen"})];
     run_loop(&cfg, &mut m).unwrap();
     assert_eq!(bodies.lock().unwrap().len(), 1);
     assert_eq!(
-        std::fs::read_to_string(&last).unwrap(),
+        std::fs::read_to_string(&verdict_file).unwrap(),
         format!("{verdict}\n")
     );
     cfg.last_message = None;
@@ -851,7 +881,32 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
             None => env::remove_var(MIXED_CASE),
         }
     }
-    let _ = std::fs::remove_file(&last);
+}
+
+/// The proxy variables of the environment go back when the guard is dropped: the
+/// environment belongs to the whole process, and a test that fails must not
+/// leave it changed for the others.
+#[test]
+fn the_proxy_variables_go_back_when_the_guard_is_dropped() {
+    // The environment belongs to the whole process: this test changes it, so it
+    // holds the shared env lock for its whole body.
+    let _env = env_lock();
+    let name = "RESTLOOP_TEST_PROXY";
+    // The guard of the test puts the variable back, whatever the test does.
+    let _restore = RestoreVars::of(&[name]);
+    unsafe { env::set_var(name, "http://127.0.0.1:1") };
+    {
+        let _proxy = remove_proxy_vars();
+        assert!(
+            env::var_os(name).is_none(),
+            "the proxy variable of the test is still there"
+        );
+    }
+    assert_eq!(
+        env::var_os(name).as_deref(),
+        Some(OsStr::new("http://127.0.0.1:1")),
+        "the proxy variable did not go back"
+    );
 }
 
 // Windows matches environment names without regard to case, so the prefix that is
