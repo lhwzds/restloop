@@ -3,7 +3,25 @@
 English | [中文](README_CN.md)
 
 A minimal coding-agent loop: it keeps working on your task so you can rest.
-Under 700 lines of Rust, packaged as a ~1.5 MB binary.
+About 940 lines of Rust — about 500 of them the core in `src/lib.rs`, the rest the CLI
+and its shell runner — packaged as a ~1.5 MB binary.
+
+The core is `src/lib.rs` (about 500 lines): the agent loop and the model client, with no
+process handling of its own. Use it as a library and give it your own command runner:
+
+```rust
+use restloop::serde_json::json;
+let cfg = restloop::Config { model: "gpt-4o".into(), base_url: "https://api.openai.com/v1".into(),
+    key: Box::new(|| Ok(std::env::var("OPENAI_API_KEY").unwrap_or_default())),
+    responses: false, reasoning_effort: None, max_steps: 100, timeout: 120,
+    deadline: None, start: std::time::Instant::now(), log_usage: false,
+    last_message: None, session: None };
+let cwd = std::env::current_dir().unwrap_or_default().display().to_string();
+let mut messages = vec![
+    json!({"role": "system", "content": restloop::system_prompt(&cfg, "sh", std::env::consts::OS, &cwd)}),
+    json!({"role": "user", "content": "fix the failing test"})];
+restloop::run(&cfg, &mut messages, &mut |cmd, secs| my_runner(cmd, secs))?;
+```
 
 RestLoop is a personal open-source project. It gives a model one tool, `shell`,
 and runs it in a loop until the model stops calling the tool. The model reads,
@@ -11,7 +29,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 
 | | |
 |---|---|
-| Source | `src/main.rs`, under 700 lines |
+| Source | `src/lib.rs` (the core), `src/main.rs` and `src/shell.rs` (the CLI) |
 | Tests | `src/tests.rs`; CI runs them on macOS, Linux and Windows |
 | Dependencies | `ureq` (HTTPS), `serde_json` |
 | Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |

@@ -1,20 +1,21 @@
 //! restloop: a minimal agent loop. One model, one shell tool.
+//!
+//! The CLI: the help text, the settings of the environment, the session and the
+//! prompts. The loop itself is the library's.
 
+use restloop::Config;
 use serde_json::{Value, json};
-use std::ffi::OsStr;
-use std::io::{BufRead, Read};
-use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
-use std::{env, thread};
+use std::env;
+use std::io::BufRead;
+use std::time::Instant;
 
+/// The steps a task may take before the loop stops.
 const MAX_STEPS: u64 = 100;
-static START: OnceLock<Instant> = OnceLock::new();
-const MAX_OUTPUT: usize = 10_000;
+/// The seconds a command may run.
 const DEFAULT_TIMEOUT: u64 = 120;
 
 fn main() {
-    START.get_or_init(Instant::now);
+    let start = Instant::now();
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
@@ -22,23 +23,31 @@ fn main() {
         );
         return;
     }
-    let Ok(model) = env::var("RESTLOOP_MODEL") else {
+    let Some(cfg) = config(|k| env::var(k).ok(), start) else {
         eprintln!("restloop: set RESTLOOP_MODEL (see --help)");
         std::process::exit(2);
     };
-    let mut messages = conversation();
+    let mut messages = match conversation(&cfg) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("restloop: {e}");
+            std::process::exit(2);
+        }
+    };
     let resumed = messages.len() > 1;
     let ask = |text: &str, messages: &mut Vec<Value>| {
         // A resumed conversation keeps its system prompt, so the provider's cache still
         // matches; this run's time budget comes with the new message instead.
-        let text = match deadline() {
+        let text = match cfg.deadline {
             Some(d) if resumed => format!(
                 "{text}\n\n[You have {d}s in total for this request; the time used in tool results counts from now.]"
             ),
             _ => text.to_string(),
         };
         messages.push(json!({"role": "user", "content": text}));
-        if let Err(e) = run(&model, messages) {
+        if let Err(e) = restloop::run(&cfg, messages, &mut |cmd, secs| {
+            restloop::shell::shell(cmd, secs)
+        }) {
             eprintln!("restloop: {e}");
             return false;
         }
@@ -61,662 +70,291 @@ fn main() {
     }
 }
 
+/// The settings the environment holds: None when RESTLOOP_MODEL is missing.
+/// The getter lives in the key closure, so it has to live as long as the settings
+/// and to be safe to share between the threads of a run.
+fn config(
+    get: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
+    start: Instant,
+) -> Option<Config> {
+    let model = get("RESTLOOP_MODEL")?;
+    let base_url = get("RESTLOOP_BASE_URL").unwrap_or_else(|| "https://api.openai.com/v1".into());
+    let responses = get("RESTLOOP_WIRE_API").is_some_and(|v| v == "responses");
+    let reasoning_effort = get("RESTLOOP_REASONING_EFFORT").filter(|v| !v.is_empty());
+    let max_steps = env_num(&get, "RESTLOOP_MAX_STEPS", MAX_STEPS);
+    let timeout = env_num(&get, "RESTLOOP_TIMEOUT", DEFAULT_TIMEOUT);
+    let deadline = get("RESTLOOP_DEADLINE").and_then(|v| v.parse().ok());
+    let log_usage = get("RESTLOOP_LOG_USAGE").is_some_and(|v| v == "1");
+    let last_message = get("RESTLOOP_LAST_MESSAGE");
+    let session = get("RESTLOOP_SESSION").filter(|p| !p.is_empty());
+    Some(Config {
+        model,
+        base_url,
+        // The key is read for every request, so it stays a closure of its own: it
+        // holds the getter and nothing else.
+        key: Box::new(move || key(&get)),
+        responses,
+        reasoning_effort,
+        max_steps,
+        timeout,
+        deadline,
+        start,
+        log_usage,
+        last_message,
+        session,
+    })
+}
+
+/// The messages of a saved session, if the text holds one.
+fn parse_session(text: &str) -> Option<Vec<Value>> {
+    let doc: Value = serde_json::from_str(text).unwrap_or_default();
+    match doc["messages"].as_array() {
+        Some(m) if doc["version"] == 1 && !m.is_empty() => Some(m.clone()),
+        _ => None,
+    }
+}
+
 /// The conversation saved in RESTLOOP_SESSION if that file exists, else a new one.
-fn conversation() -> Vec<Value> {
-    let path = env::var("RESTLOOP_SESSION").unwrap_or_default();
+/// A file that holds no session is an error the CLI reports.
+fn conversation(cfg: &Config) -> Result<Vec<Value>, String> {
+    let path = cfg.session.clone().unwrap_or_default();
     if path.is_empty() || !std::path::Path::new(&path).exists() {
-        return vec![json!({"role": "system", "content": system_prompt()})];
+        return Ok(vec![
+            json!({"role": "system", "content": restloop::system_prompt(cfg, shell_name(), env::consts::OS, &cwd())}),
+        ]);
     }
     let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let doc: Value = serde_json::from_str(&text).unwrap_or_default();
-    match doc["messages"].as_array() {
-        Some(m) if doc["version"] == 1 && !m.is_empty() => m.clone(),
-        _ => {
-            eprintln!("restloop: {path} is not a restloop session");
-            std::process::exit(2);
-        }
+    match parse_session(&text) {
+        Some(m) => Ok(m),
+        None => Err(format!("{path} is not a restloop session")),
     }
 }
 
-fn system_prompt() -> String {
-    let cwd = env::current_dir().unwrap_or_default();
-    let cwd = cwd.display().to_string();
-    format!(
-        "You are a coding agent. Use the shell tool to inspect files, edit them and run commands until the task is done, then reply with a short summary and no tool call.\nOS: {}. Shell: {}. Working directory: {cwd}.\nCommands run non-interactively with no stdin and a {}s timeout; long output is truncated.{}",
-        env::consts::OS,
-        match shell_path() {
-            Some(_) if cfg!(windows) => "bash (Git Bash)",
-            Some(_) => "sh",
-            None => "PowerShell",
-        },
-        timeout(),
-        deadline().map_or(String::new(), |d| format!(
-            "\nYou have {d}s in total for this task; each tool result ends with the time used so far."
-        ))
-    )
+/// The name of the shell the commands run in, for the system prompt.
+fn shell_name() -> &'static str {
+    match restloop::shell::shell_path() {
+        Some(_) if cfg!(windows) => "bash (Git Bash)",
+        Some(_) => "sh",
+        None => "PowerShell",
+    }
 }
 
-/// The whole task's time budget in seconds (RESTLOOP_DEADLINE), if set.
-fn deadline() -> Option<u64> {
-    env::var("RESTLOOP_DEADLINE")
-        .ok()
-        .and_then(|v| v.parse().ok())
+/// The working directory the commands run in, for the system prompt.
+fn cwd() -> String {
+    env::current_dir().unwrap_or_default().display().to_string()
 }
 
-/// Seconds since restloop started.
-fn elapsed() -> u64 {
-    START.get_or_init(Instant::now).elapsed().as_secs()
-}
-
-/// Seconds a command may run.
-fn timeout() -> u64 {
-    env_num("RESTLOOP_TIMEOUT", DEFAULT_TIMEOUT)
+/// The key of a request: the file if there is one, else the variable.
+fn key(get: impl Fn(&str) -> Option<String>) -> Result<String, String> {
+    match get("RESTLOOP_API_KEY_FILE") {
+        Some(p) if !p.is_empty() => {
+            std::fs::read_to_string(&p).map_err(|e| format!("cannot read {p}: {e}"))
+        }
+        _ => Ok(get("RESTLOOP_API_KEY").unwrap_or_default()),
+    }
 }
 
 /// A number from the environment, or the default when unset or invalid.
-fn env_num(name: &str, default: u64) -> u64 {
-    env::var(name)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
-}
-
-fn run(model: &str, messages: &mut Vec<Value>) -> Result<(), String> {
-    let tools = json!([{"type": "function", "function": {
-        "name": "shell",
-        "description": "Run a shell command and return its exit code and output.",
-        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
-    }}]);
-    let max_steps = env_num("RESTLOOP_MAX_STEPS", MAX_STEPS);
-    let log_usage = env::var("RESTLOOP_LOG_USAGE").is_ok_and(|v| v == "1");
-    // RESTLOOP_LAST_MESSAGE: the final reply goes to this file. Remove an old one first
-    // so a run that stops early cannot leave the previous run's answer behind.
-    let last_message = env::var("RESTLOOP_LAST_MESSAGE").ok();
-    if let Some(path) = &last_message {
-        let _ = std::fs::remove_file(path);
-    }
-    for step in 1..=max_steps {
-        let reply = loop {
-            let body = json!({"model": model, "messages": messages, "tools": tools});
-            match complete(&body) {
-                // Past the model's context window: shorten old command output and retry.
-                Err(e) if too_long(&e) && drop_old_output(messages) > 0 => {
-                    eprintln!("restloop: context too long, dropped old command output")
-                }
-                r => break r?,
-            }
-        };
-        if log_usage {
-            let u = &reply["usage"];
-            eprintln!(
-                "usage: step={step} prompt_tokens={} completion_tokens={} cached_tokens={} elapsed={}s",
-                u["prompt_tokens"],
-                u["completion_tokens"],
-                u["prompt_tokens_details"]["cached_tokens"],
-                elapsed()
-            );
-        }
-        let msg = &reply["choices"][0]["message"];
-        let text = msg["content"].as_str().unwrap_or("");
-        if !text.trim().is_empty() {
-            println!("{}", text.trim());
-        }
-        let calls = msg["tool_calls"].as_array().cloned().unwrap_or_default();
-        let mut keep = json!({"role": "assistant", "content": text});
-        // output_items: the Responses API's output, opaque reasoning included, sent back as it came.
-        for field in ["reasoning_content", "output_items"] {
-            if let Some(r) = msg.get(field).filter(|r| !r.is_null()) {
-                keep[field] = r.clone();
-            }
-        }
-        if !calls.is_empty() {
-            keep["tool_calls"] = json!(calls);
-        }
-        messages.push(keep);
-        if calls.is_empty() {
-            save(messages);
-            if let Some(path) = &last_message {
-                let final_reply = answer(text).trim();
-                if let Err(e) = std::fs::write(path, format!("{final_reply}\n")) {
-                    eprintln!("restloop: cannot write {path}: {e}");
-                }
-            }
-            return Ok(());
-        }
-        for call in &calls {
-            let args = call["function"]["arguments"].as_str().unwrap_or("{}");
-            let a: Value = serde_json::from_str(args).unwrap_or(Value::Null);
-            let output = match a["command"].as_str() {
-                Some(cmd) => {
-                    eprintln!("\x1b[2m$ {cmd}\x1b[0m");
-                    // A command may not outlive the task's time budget.
-                    let left = deadline().map_or(u64::MAX, |d| d.saturating_sub(elapsed()).max(1));
-                    let t = Instant::now();
-                    let mut out = shell(cmd, timeout().min(left));
-                    eprintln!(
-                        "\x1b[2m[{:.1}s] {}\x1b[0m",
-                        t.elapsed().as_secs_f64(),
-                        out.lines().take(10).collect::<Vec<_>>().join("\n")
-                    );
-                    if let Some(d) = deadline() {
-                        out.push_str(&format!("\n[time used: {}s of {d}s]", elapsed()));
-                    }
-                    out
-                }
-                None => {
-                    format!("error: arguments must be JSON with a \"command\" string, got: {args}")
-                }
-            };
-            messages.push(json!({"role": "tool", "tool_call_id": call["id"], "content": output}));
-        }
-        save(messages);
-    }
-    Err(format!("stopped after {max_steps} steps"))
-}
-
-/// Writes the conversation, exactly as the next request will send it, to RESTLOOP_SESSION.
-/// A temporary file and a rename mean a killed run leaves its last complete step; the
-/// process id in its name keeps two runs on one file from writing into the same one.
-fn save(messages: &[Value]) {
-    let Some(path) = env::var("RESTLOOP_SESSION").ok().filter(|p| !p.is_empty()) else {
-        return;
-    };
-    let tmp = format!("{path}.{}.tmp", std::process::id());
-    let doc = json!({"version": 1, "messages": messages});
-    if let Err(e) = std::fs::write(&tmp, doc.to_string()).and_then(|_| std::fs::rename(&tmp, &path))
-    {
-        eprintln!("restloop: cannot save {path}: {e}");
-    }
-}
-
-/// Removes the reasoning from all assistant messages but the last `keep`; returns how many changed.
-/// `reasoning_content` is emptied, not removed: DeepSeek rejects a tool turn in which an
-/// assistant message has lost the field.
-fn trim_thinking(messages: &mut [Value], keep: usize) -> usize {
-    let mut changed = 0;
-    for m in messages
-        .iter_mut()
-        .rev()
-        .filter(|m| m["role"] == "assistant")
-        .skip(keep)
-    {
-        let had = m
-            .get_mut("reasoning_content")
-            .filter(|r| r.as_str() != Some(""))
-            .map(|r| *r = json!(""));
-        // Of the Responses API's output, only the reasoning goes: messages keep their phase.
-        let items = m.get_mut("output_items").and_then(Value::as_array_mut);
-        let had = had.or(items
-            .filter(|o| o.iter().any(|i| i["type"] == "reasoning"))
-            .map(|o| o.retain(|i| i["type"] != "reasoning")));
-        let content = m["content"].as_str().unwrap_or("");
-        let a = answer(content);
-        let stripped = a != content;
-        if stripped {
-            m["content"] = json!(a.trim());
-        }
-        changed += usize::from(had.is_some() || stripped);
-    }
-    changed
-}
-
-/// Whether an API error says the conversation no longer fits the model's context window,
-/// in the words providers use ("maximum context length is …" from OpenAI, DeepSeek and
-/// vLLM; "context window exceeds limit" from MiniMax; "prompt is too long" from Anthropic;
-/// "exceeds the available context size" from llama.cpp).
-fn too_long(err: &str) -> bool {
-    let e = err.to_lowercase();
-    (e.starts_with("http 400") || e.starts_with("http 413") || e.starts_with("no reply: "))
-        && [
-            "context_length_exceeded",
-            "maximum context length",
-            "context window exceeds",
-            "prompt is too long",
-            "exceeds the available context size",
-        ]
-        .iter()
-        .any(|k| e.contains(k))
-}
-
-/// Cuts the older half of the command outputs down to their first line and drops old
-/// reasoning; returns how many messages changed (0: nothing left to shorten).
-fn drop_old_output(messages: &mut [Value]) -> usize {
-    const NOTE: &str = "[output removed to fit the context window]";
-    let old: Vec<usize> = (0..messages.len())
-        .filter(|&i| messages[i]["role"] == "tool")
-        .filter(|&i| {
-            let c = messages[i]["content"].as_str().unwrap_or("");
-            !c.ends_with(NOTE)
-        })
-        .collect();
-    let old = &old[..old.len().div_ceil(2)];
-    for &i in old {
-        let text = messages[i]["content"].as_str().unwrap_or("");
-        let exit = text.lines().next().unwrap_or("");
-        messages[i]["content"] = json!(format!("{exit}\n{NOTE}"));
-    }
-    old.len() + trim_thinking(messages, 2)
-}
-
-/// Some models put their reasoning in a leading `<think>` block inside the reply: the
-/// answer is what follows the first `</think>` after it.
-fn answer(text: &str) -> &str {
-    let t = text.trim_start();
-    if !t.starts_with("<think>") {
-        return text;
-    }
-    t.split_once("</think>").map_or("", |(_, a)| a)
-}
-
-/// A reply with no tool call and no text is a failed request, not an answer.
-fn empty(reply: &Value) -> bool {
-    let msg = &reply["choices"][0]["message"];
-    let text = msg["content"].as_str().unwrap_or("");
-    msg["tool_calls"].as_array().is_none_or(|c| c.is_empty()) && answer(text).trim().is_empty()
-}
-
-fn complete(body: &Value) -> Result<Value, String> {
-    let base = env::var("RESTLOOP_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".into());
-    let responses = env::var("RESTLOOP_WIRE_API").is_ok_and(|v| v == "responses");
-    let (path, mut body) = match responses {
-        true => ("responses", responses_request(body)),
-        false => ("chat/completions", body.clone()),
-    };
-    if let Ok(e) = env::var("RESTLOOP_REASONING_EFFORT")
-        && !e.is_empty()
-    {
-        match responses {
-            true => body["reasoning"] = json!({"effort": e}),
-            false => body["reasoning_effort"] = json!(e),
-        }
-    }
-    let url = format!("{}/{path}", base.trim_end_matches('/'));
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .build()
-        .into();
-    for attempt in 0..5 {
-        let mut empty_reply: Option<Value> = None;
-        // RESTLOOP_API_KEY_FILE is read for every request, so another program can
-        // replace a short-lived token while a long task runs.
-        let key = match env::var("RESTLOOP_API_KEY_FILE") {
-            Ok(p) if !p.is_empty() => {
-                std::fs::read_to_string(&p).map_err(|e| format!("cannot read {p}: {e}"))?
-            }
-            _ => env::var("RESTLOOP_API_KEY").unwrap_or_default(),
-        };
-        let limit = deadline();
-        let left = limit.map_or(Duration::from_secs(600), |d| {
-            Duration::from_secs(d)
-                .saturating_sub(START.get_or_init(Instant::now).elapsed())
-                .min(Duration::from_secs(600))
-        });
-        if left.is_zero() {
-            return Err(format!("deadline of {}s reached", limit.unwrap()));
-        }
-        let resp = agent
-            .post(&url)
-            .config()
-            .timeout_global(Some(left))
-            .build()
-            .header("Authorization", &format!("Bearer {}", key.trim()))
-            .send_json(&body);
-        let (status, text) = match resp {
-            Ok(mut r) if r.status() == 200 && responses => {
-                match responses_reply(std::io::BufReader::new(r.body_mut().as_reader())) {
-                    Ok(reply) if empty(&reply) => {
-                        empty_reply = Some(reply);
-                        (200, "empty reply".into())
-                    }
-                    Ok(reply) => return Ok(reply),
-                    Err(e) => (200, e),
-                }
-            }
-            Ok(mut r) => {
-                let status = r.status().as_u16();
-                match r.body_mut().read_to_string() {
-                    Ok(text) => (status, text),
-                    Err(e) => (0, e.to_string()),
-                }
-            }
-            Err(e) => (0, e.to_string()),
-        };
-        if status == 200 && !responses {
-            let reply: Value =
-                serde_json::from_str(&text).map_err(|e| format!("bad response: {e}: {text}"))?;
-            if reply["choices"][0]["message"].is_object() {
-                if !empty(&reply) {
-                    return Ok(reply);
-                }
-                empty_reply = Some(reply);
-            }
-            // MiniMax answers some errors with HTTP 200 and no choices; that is not a reply.
-        }
-        let what = match status {
-            0 => "request failed".to_string(),
-            200 => "no reply".to_string(),
-            _ => format!("HTTP {status}"),
-        };
-        // Used-up credits or plan limits do not come back within the retries, nor does a
-        // failure the stream reports for another reason than the server or a limit (a
-        // refused or cut-off answer, a request too long for the context). An empty reply
-        // is tried again all the same: it says nothing, so a limit named around it is
-        // not the reason the request failed.
-        let spent = empty_reply.is_none()
-            && (text.contains("insufficient_quota")
-                || text.contains("subscription_sharing_usage_limit_exceeded"));
-        let failed = responses
-            && status == 200
-            && !(text.starts_with("the event stream") || text == "empty reply")
-            && !["server_error", "rate_limit", "unavailable"]
-                .iter()
-                .any(|k| text.contains(k));
-        if !(status == 0 || status == 200 || status == 429 || status >= 500) || spent || failed {
-            return Err(format!("{what}: {text}"));
-        }
-        // The last attempt has no retry to sleep for: only a deadline already passed counts.
-        let sleep = if attempt == 4 { 0 } else { 2 << attempt };
-        if let Some(d) = limit
-            && START
-                .get_or_init(Instant::now)
-                .elapsed()
-                .saturating_add(Duration::from_secs(sleep))
-                >= Duration::from_secs(d)
-        {
-            return Err(format!("deadline of {d}s reached ({what}: {text})"));
-        }
-        if attempt == 4 {
-            return empty_reply.map_or_else(|| Err(format!("{what}: {text}")), Ok);
-        }
-        eprintln!("restloop: {what}, retrying");
-        thread::sleep(Duration::from_secs(sleep));
-    }
-    unreachable!()
-}
-
-/// A chat-completions request as a Responses API request. The first system message
-/// becomes the instructions; an assistant message goes back as its `output_items` (the
-/// model's output as it came, reasoning included) or, without them, as its text and calls.
-fn responses_request(body: &Value) -> Value {
-    let mut instructions = Value::Null;
-    let mut input = Vec::new();
-    for m in body["messages"].as_array().into_iter().flatten() {
-        match m["role"].as_str().unwrap_or("") {
-            "system" if instructions.is_null() && input.is_empty() => {
-                instructions = m["content"].clone()
-            }
-            "assistant" if m["output_items"].is_array() => {
-                input.extend(m["output_items"].as_array().into_iter().flatten().cloned())
-            }
-            "assistant" => {
-                if m["content"].as_str().is_some_and(|t| !t.is_empty()) {
-                    input.push(json!({"role": "assistant", "content": m["content"]}));
-                }
-                for c in m["tool_calls"].as_array().into_iter().flatten() {
-                    input.push(json!({"type": "function_call", "call_id": c["id"],
-                        "name": c["function"]["name"], "arguments": c["function"]["arguments"]}));
-                }
-            }
-            "tool" => input.push(json!({"type": "function_call_output",
-                "call_id": m["tool_call_id"], "output": m["content"]})),
-            _ => input.push(json!({"role": m["role"], "content": m["content"]})),
-        }
-    }
-    let tools: Vec<Value> = body["tools"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|t| {
-            let mut f = t["function"].clone();
-            f["type"] = json!("function");
-            f
-        })
-        .collect();
-    // One key per system prompt (it names the working directory) keeps a conversation's
-    // requests on the same cache.
-    let mut h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(&instructions.to_string(), &mut h);
-    let mut r = json!({"model": body["model"], "input": input, "tools": tools, "store": false,
-        "stream": true, "include": ["reasoning.encrypted_content"],
-        "prompt_cache_key": format!("restloop-{:016x}", std::hash::Hasher::finish(&h))});
-    if !instructions.is_null() {
-        r["instructions"] = instructions;
-    }
-    r
-}
-
-/// Reads a Responses API event stream into a chat-completions reply.
-fn responses_reply(stream: impl BufRead) -> Result<Value, String> {
-    let mut items = Vec::new();
-    for line in stream.lines() {
-        let line = line.map_err(|e| format!("the event stream broke: {e}"))?;
-        let Some(data) = line.strip_prefix("data:") else {
-            continue;
-        };
-        let Ok(event) = serde_json::from_str::<Value>(data.trim()) else {
-            continue;
-        };
-        let kind = event["type"].as_str().unwrap_or("");
-        match kind {
-            "response.output_item.done" => items.push((
-                event["output_index"].as_u64().unwrap_or(u64::MAX),
-                event["item"].clone(),
-            )),
-            "response.completed" => {
-                let r = &event["response"];
-                // Items finish in any order; output_index (or the final output) has theirs.
-                items.sort_by_key(|(i, _)| *i);
-                let mut items: Vec<Value> = match r["output"].as_array() {
-                    Some(o) if !o.is_empty() => o.clone(),
-                    _ => items.into_iter().map(|(_, i)| i).collect(),
-                };
-                let (mut text, mut calls) = (String::new(), vec![]);
-                for i in &mut items {
-                    match i["type"].as_str().unwrap_or("") {
-                        "message" => {
-                            for c in i["content"].as_array().into_iter().flatten() {
-                                text += c["text"].as_str().or(c["refusal"].as_str()).unwrap_or("");
-                            }
-                        }
-                        "function_call" => calls
-                            .push(json!({"id": i["call_id"], "type": "function",
-                            "function": {"name": i["name"], "arguments": i["arguments"]}})),
-                        _ => continue,
-                    }
-                    // Without `store`, only reasoning items may keep their ids (as Codex sends them).
-                    i.as_object_mut().map(|o| o.remove("id"));
-                }
-                let mut msg = json!({"role": "assistant", "content": text, "output_items": items});
-                if !calls.is_empty() {
-                    msg["tool_calls"] = json!(calls);
-                }
-                let u = &r["usage"];
-                return Ok(json!({"choices": [{"message": msg}], "usage": {
-                    "prompt_tokens": u["input_tokens"], "completion_tokens": u["output_tokens"],
-                    "prompt_tokens_details": {"cached_tokens": u["input_tokens_details"]["cached_tokens"]}}}));
-            }
-            "response.failed" | "response.incomplete" | "error" => {
-                let r = &event["response"];
-                let detail = [&r["error"], &r["incomplete_details"]]
-                    .into_iter()
-                    .find(|d| !d.is_null())
-                    .unwrap_or(&event);
-                return Err(format!("{kind}: {detail}"));
-            }
-            _ => {}
-        }
-    }
-    Err("the event stream ended without a response".into())
-}
-
-/// Is this environment name one of restloop's own settings? Windows matches
-/// names without regard to case, so a key spelled `Restloop_Api_Key` reaches
-/// restloop there and must be caught too; elsewhere names are exact.
-fn restloop_var(name: &OsStr) -> bool {
-    let name = name.as_encoded_bytes();
-    let prefix = b"RESTLOOP_";
-    if name.len() < prefix.len() {
-        return false;
-    }
-    #[cfg(windows)]
-    return name[..prefix.len()].eq_ignore_ascii_case(prefix);
-    #[cfg(not(windows))]
-    return name.starts_with(prefix);
-}
-
-/// The shell commands run in: sh, or on Windows Git Bash when installed (None: PowerShell).
-fn shell_path() -> Option<String> {
-    if !cfg!(windows) {
-        return Some("sh".into());
-    }
-    ["ProgramFiles", "ProgramFiles(x86)"]
-        .iter()
-        .filter_map(|v| env::var(v).ok())
-        .map(|dir| format!("{dir}\\Git\\bin\\bash.exe"))
-        .find(|p| std::path::Path::new(p).exists())
-}
-
-fn shell(cmd: &str, secs: u64) -> String {
-    let mut c = match shell_path() {
-        Some(sh) => {
-            let mut c = Command::new(sh);
-            c.args(["-c", cmd]);
-            c
-        }
-        None => {
-            let mut c = Command::new("powershell");
-            c.args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                &format!("[Console]::OutputEncoding = [Text.Encoding]::UTF8; {cmd}"),
-            ]);
-            c
-        }
-    };
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut c, 0);
-    c.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("PYTHONUTF8", "1");
-    // The model's commands get none of restloop's own settings (the key, its file, the URL).
-    for (k, _) in env::vars_os() {
-        if restloop_var(&k) {
-            c.env_remove(k);
-        }
-    }
-    let mut child = match c.spawn() {
-        Ok(child) => child,
-        Err(e) => return format!("error: {e}"),
-    };
-    #[cfg(windows)]
-    let job = win::Job::new(&child);
-    // stdout and stderr go into one buffer as they arrive, so output read so far
-    // survives even if a background child keeps a pipe open.
-    let buf = Arc::new(Mutex::new(Vec::new()));
-    let pipe = |mut p: Box<dyn Read + Send>| {
-        let buf = buf.clone();
-        thread::spawn(move || {
-            let mut chunk = [0u8; 8192];
-            while let Ok(n @ 1..) = p.read(&mut chunk) {
-                buf.lock().unwrap().extend_from_slice(&chunk[..n]);
-            }
-        })
-    };
-    let out = pipe(Box::new(child.stdout.take().unwrap()));
-    let err = pipe(Box::new(child.stderr.take().unwrap()));
-    // Wait for the shell and its pipes. Background children that keep the pipes
-    // open get 2s after the shell exits, then the whole process group (job) is killed.
-    let mut deadline = Instant::now() + Duration::from_secs(secs);
-    let mut status = None;
-    loop {
-        if status.is_none()
-            && let Ok(Some(s)) = child.try_wait()
-        {
-            status = Some(s.code().map_or("killed".into(), |c| c.to_string()));
-            deadline = deadline.min(Instant::now() + Duration::from_secs(2));
-        }
-        if status.is_some() && out.is_finished() && err.is_finished() {
-            break;
-        }
-        if Instant::now() > deadline {
-            #[cfg(windows)]
-            job.kill();
-            // The process group is signalled directly: no shell is started.
-            // Killing the child as well means wait() cannot hang even if that fails.
-            #[cfg(unix)]
-            unsafe {
-                kill(-(child.id() as i32), 9)
-            };
-            let _ = child.kill();
-            let _ = child.wait();
-            status.get_or_insert(format!("timeout after {secs}s"));
-            thread::sleep(Duration::from_millis(200));
-            break;
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-    let text = String::from_utf8_lossy(&buf.lock().unwrap()).into_owned();
-    format!("exit: {}\n{}", status.unwrap_or_default(), truncate(&text))
-}
-
-fn truncate(s: &str) -> String {
-    let n = s.chars().count();
-    if n <= MAX_OUTPUT {
-        return s.to_string();
-    }
-    let head: String = s.chars().take(MAX_OUTPUT / 2).collect();
-    let tail: String = s.chars().skip(n - MAX_OUTPUT / 2).collect();
-    format!(
-        "{head}\n... [{} chars truncated] ...\n{tail}",
-        n - MAX_OUTPUT
-    )
-}
-
-/// Windows has no process groups: a job object holds the command and everything it
-/// starts (Git Bash children included), so a timeout can kill all of them.
-#[cfg(windows)]
-mod win {
-    use std::ffi::c_void;
-    use std::os::windows::io::AsRawHandle;
-
-    unsafe extern "system" {
-        fn CreateJobObjectW(attributes: *const c_void, name: *const u16) -> *mut c_void;
-        fn AssignProcessToJobObject(job: *mut c_void, process: *mut c_void) -> i32;
-        fn TerminateJobObject(job: *mut c_void, exit_code: u32) -> i32;
-        fn CloseHandle(handle: *mut c_void) -> i32;
-    }
-
-    pub struct Job(*mut c_void);
-
-    impl Job {
-        pub fn new(child: &std::process::Child) -> Job {
-            unsafe {
-                let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-                AssignProcessToJobObject(job, child.as_raw_handle());
-                Job(job)
-            }
-        }
-
-        pub fn kill(&self) {
-            unsafe { TerminateJobObject(self.0, 1) };
-        }
-    }
-
-    impl Drop for Job {
-        fn drop(&mut self) {
-            unsafe { CloseHandle(self.0) };
-        }
-    }
-}
-
-// The timeout path kills the process group itself; no libc dependency.
-#[cfg(unix)]
-unsafe extern "C" {
-    fn kill(pid: i32, sig: i32) -> i32;
+fn env_num(get: &impl Fn(&str) -> Option<String>, name: &str, default: u64) -> u64 {
+    get(name).and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    /// A getter that answers from a list of settings.
+    fn get(settings: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + Send + Sync + 'static {
+        let settings: Vec<(String, String)> = settings
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |k| {
+            settings
+                .iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.clone())
+        }
+    }
+
+    #[test]
+    fn no_model_means_no_settings() {
+        assert!(config(get(&[]), Instant::now()).is_none());
+    }
+
+    #[test]
+    fn the_settings_have_the_defaults_the_cli_uses() {
+        let start = Instant::now();
+        let cfg = config(get(&[("RESTLOOP_MODEL", "m")]), start).unwrap();
+        assert_eq!(cfg.model, "m");
+        assert_eq!(cfg.base_url, "https://api.openai.com/v1");
+        assert_eq!(cfg.max_steps, MAX_STEPS);
+        assert_eq!(cfg.timeout, DEFAULT_TIMEOUT);
+        assert_eq!(cfg.deadline, None);
+        assert_eq!(cfg.reasoning_effort, None);
+        assert!(!cfg.responses);
+        assert!(!cfg.log_usage);
+        assert_eq!(cfg.last_message, None);
+        assert_eq!(cfg.session, None);
+        assert_eq!(cfg.start, start);
+    }
+
+    #[test]
+    fn every_setting_is_read_from_the_environment() {
+        let cfg = config(
+            get(&[
+                ("RESTLOOP_MODEL", "m"),
+                ("RESTLOOP_BASE_URL", "http://127.0.0.1:1/v1"),
+                ("RESTLOOP_WIRE_API", "responses"),
+                ("RESTLOOP_REASONING_EFFORT", "low"),
+                ("RESTLOOP_MAX_STEPS", "5"),
+                ("RESTLOOP_TIMEOUT", "7"),
+                ("RESTLOOP_DEADLINE", "60"),
+                ("RESTLOOP_LOG_USAGE", "1"),
+                ("RESTLOOP_LAST_MESSAGE", "last.txt"),
+                ("RESTLOOP_SESSION", "session.json"),
+            ]),
+            Instant::now(),
+        )
+        .unwrap();
+        assert_eq!(cfg.base_url, "http://127.0.0.1:1/v1");
+        assert!(cfg.responses);
+        assert_eq!(cfg.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(cfg.max_steps, 5);
+        assert_eq!(cfg.timeout, 7);
+        assert_eq!(cfg.deadline, Some(60));
+        assert!(cfg.log_usage);
+        assert_eq!(cfg.last_message.as_deref(), Some("last.txt"));
+        assert_eq!(cfg.session.as_deref(), Some("session.json"));
+    }
+
+    #[test]
+    fn an_empty_reasoning_effort_is_no_effort() {
+        let cfg = config(
+            get(&[("RESTLOOP_MODEL", "m"), ("RESTLOOP_REASONING_EFFORT", "")]),
+            Instant::now(),
+        )
+        .unwrap();
+        assert_eq!(cfg.reasoning_effort, None);
+    }
+
+    #[test]
+    fn a_number_that_is_not_one_is_the_default() {
+        let cfg = config(
+            get(&[
+                ("RESTLOOP_MODEL", "m"),
+                ("RESTLOOP_MAX_STEPS", "many"),
+                ("RESTLOOP_TIMEOUT", ""),
+                ("RESTLOOP_DEADLINE", "soon"),
+            ]),
+            Instant::now(),
+        )
+        .unwrap();
+        assert_eq!(cfg.max_steps, MAX_STEPS);
+        assert_eq!(cfg.timeout, DEFAULT_TIMEOUT);
+        assert_eq!(cfg.deadline, None);
+    }
+
+    #[test]
+    fn a_saved_session_is_read_when_it_holds_one() {
+        let messages = vec![json!({"role": "user", "content": "hi"})];
+        let text = json!({"version": 1, "messages": messages}).to_string();
+        assert_eq!(parse_session(&text), Some(messages));
+    }
+
+    /// The key of a request: the file if there is one, else the variable.
+    #[test]
+    fn the_key_comes_from_the_file_when_there_is_one() {
+        let path = env::temp_dir().join(format!("restloop-key-file-{}", std::process::id()));
+        let file = path.to_string_lossy().to_string();
+        std::fs::write(&path, "from the file").unwrap();
+        let key = key(get(&[
+            ("RESTLOOP_API_KEY_FILE", file.as_str()),
+            ("RESTLOOP_API_KEY", "from the variable"),
+        ]))
+        .unwrap();
+        assert_eq!(key, "from the file");
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// A key file that is not named is no file: the variable answers.
+    #[test]
+    fn an_empty_key_file_setting_falls_back_to_the_variable() {
+        let key = key(get(&[
+            ("RESTLOOP_API_KEY_FILE", ""),
+            ("RESTLOOP_API_KEY", "from the variable"),
+        ]))
+        .unwrap();
+        assert_eq!(key, "from the variable");
+    }
+
+    /// Without a key anywhere the key is empty.
+    #[test]
+    fn without_a_key_the_key_is_empty() {
+        assert_eq!(key(get(&[])).unwrap(), "");
+    }
+
+    /// A key file that cannot be read is an error, not an empty key.
+    #[test]
+    fn a_key_file_that_cannot_be_read_is_an_error() {
+        let path = env::temp_dir().join(format!("restloop-no-key-{}", std::process::id()));
+        let file = path.to_string_lossy().to_string();
+        let e = key(get(&[("RESTLOOP_API_KEY_FILE", file.as_str())])).unwrap_err();
+        assert!(e.contains("cannot read"), "{e}");
+        assert!(e.contains(&file), "{e}");
+    }
+
+    /// A session file of another version is no session: the CLI says so and stops.
+    #[test]
+    fn a_session_file_that_is_not_a_session_is_an_error() {
+        let path = env::temp_dir().join(format!("restloop-bad-session-{}", std::process::id()));
+        let file = path.to_string_lossy().to_string();
+        std::fs::write(
+            &path,
+            json!({"version": 2, "messages": [{"role": "user", "content": "hi"}]}).to_string(),
+        )
+        .unwrap();
+        let cfg = config(
+            get(&[("RESTLOOP_MODEL", "m"), ("RESTLOOP_SESSION", file.as_str())]),
+            Instant::now(),
+        )
+        .unwrap();
+        let e = conversation(&cfg).unwrap_err();
+        assert_eq!(e, format!("{file} is not a restloop session"));
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// A session file that is not there is a new conversation with the system prompt.
+    #[test]
+    fn a_session_that_is_not_there_is_a_new_conversation() {
+        let path = env::temp_dir().join(format!("restloop-no-session-{}", std::process::id()));
+        let file = path.to_string_lossy().to_string();
+        let cfg = config(
+            get(&[("RESTLOOP_MODEL", "m"), ("RESTLOOP_SESSION", file.as_str())]),
+            Instant::now(),
+        )
+        .unwrap();
+        let messages = conversation(&cfg).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "system");
+        assert_eq!(
+            messages[0]["content"],
+            restloop::system_prompt(&cfg, shell_name(), env::consts::OS, &cwd())
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_session_is_no_session() {
+        assert_eq!(parse_session("not a session"), None);
+        assert_eq!(parse_session("{}"), None);
+        // Another version, and a session without messages, are no sessions either.
+        assert_eq!(
+            parse_session(&json!({"version": 2, "messages": [{"role": "user"}]}).to_string()),
+            None
+        );
+        assert_eq!(
+            parse_session(&json!({"version": 1, "messages": []}).to_string()),
+            None
+        );
+    }
+}
