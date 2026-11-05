@@ -1,7 +1,7 @@
 ---
 title: restloop
 repo: ..
-commit: 99fb5fae3a259a3273b50cd98aeb24cdf8e39899
+commit: 2cdc0d11b3ab2cd8540acaef9da5243ef8449a34
 remote: https://github.com/lhwzds/restloop
 lang: en
 max_pages: 8
@@ -22,4 +22,4 @@ translations:
   - README_CN.md: README.md #481d7faf265b
 ---
 
-These docs go one level below the README for RestLoop, a single-file Rust agent loop that gives a model one `shell` tool. They describe v0.3.2. Compared with v0.3.1 commands no longer get any `RESTLOOP_*` variable in their environment, and a command's process group is killed without starting a shell. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
+These docs go one level below the README for RestLoop, a small Rust agent loop that gives a model one `shell` tool. They describe v0.4.0. Compared with v0.3.2 the core is a library: `src/lib.rs` runs the loop from a `Config` and a tool callback and can be used on its own, `src/shell.rs` is the default command runner and `src/main.rs` the CLI. The binary behaves exactly as before. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
