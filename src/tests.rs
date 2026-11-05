@@ -276,6 +276,10 @@ fn truncate_keeps_head_and_tail() {
 
 #[test]
 fn shell_returns_exit_code_and_both_streams() {
+    // The command inherits the environment of the process: another test must not
+    // change it while this one runs, so the shared env lock is held for the whole
+    // body.
+    let _env = env_lock();
     let out = shell("echo out; echo err >&2; exit 3", 30);
     assert!(out.starts_with("exit: 3\n"), "{out}");
     assert!(out.contains("out") && out.contains("err"), "{out}");
@@ -283,6 +287,10 @@ fn shell_returns_exit_code_and_both_streams() {
 
 #[test]
 fn shell_kills_a_command_at_its_timeout() {
+    // The command inherits the environment of the process: another test must not
+    // change it while this one runs, so the shared env lock is held for the whole
+    // body.
+    let _env = env_lock();
     let t = Instant::now();
     let out = shell("echo started; sleep 30", 3);
     assert!(out.starts_with("exit: timeout after 3s\nstarted"), "{out}");
@@ -291,6 +299,10 @@ fn shell_kills_a_command_at_its_timeout() {
 
 #[test]
 fn shell_does_not_wait_for_a_background_child_holding_the_output() {
+    // The command inherits the environment of the process: another test must not
+    // change it while this one runs, so the shared env lock is held for the whole
+    // body.
+    let _env = env_lock();
     let t = Instant::now();
     let out = shell("sleep 30 &\necho done", 60);
     assert!(out.starts_with("exit: 0\ndone"), "{out}");
@@ -817,10 +829,14 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     // The key, the path to it and the URL (which can hold user:token) must not
     // reach the model's commands. var_os keeps a value that is not valid UTF-8,
     // so restoring it afterwards does not drop it.
-    let old_key = env::var_os("RESTLOOP_API_KEY");
-    let old_key_file = env::var_os("RESTLOOP_API_KEY_FILE");
-    let old_url = env::var_os("RESTLOOP_BASE_URL");
-    let old_mixed = env::var_os(MIXED_CASE);
+    // The guard of the test puts the variables back, whatever the test does: an
+    // assertion that fails must not leave them changed for the others.
+    let _restore = RestoreVars::of(&[
+        "RESTLOOP_API_KEY",
+        "RESTLOOP_API_KEY_FILE",
+        "RESTLOOP_BASE_URL",
+        MIXED_CASE,
+    ]);
     unsafe {
         env::set_var("RESTLOOP_API_KEY", "test-key-not-for-commands");
         env::set_var("RESTLOOP_API_KEY_FILE", "/nonexistent/key-file");
@@ -862,24 +878,6 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
                 .any(|l| l.to_ascii_uppercase().starts_with("RESTLOOP_")),
             "{out}"
         );
-    }
-    unsafe {
-        match old_key {
-            Some(k) => env::set_var("RESTLOOP_API_KEY", k),
-            None => env::remove_var("RESTLOOP_API_KEY"),
-        }
-        match old_key_file {
-            Some(k) => env::set_var("RESTLOOP_API_KEY_FILE", k),
-            None => env::remove_var("RESTLOOP_API_KEY_FILE"),
-        }
-        match old_url {
-            Some(u) => env::set_var("RESTLOOP_BASE_URL", u),
-            None => env::remove_var("RESTLOOP_BASE_URL"),
-        }
-        match old_mixed {
-            Some(m) => env::set_var(MIXED_CASE, m),
-            None => env::remove_var(MIXED_CASE),
-        }
     }
 }
 
@@ -933,6 +931,12 @@ fn restloop_settings_are_matched_the_way_the_platform_reads_names() {
 /// with a fixed string is enough.
 #[test]
 fn the_core_runs_with_a_tool_of_its_own() {
+    // The core builds a ureq agent, which reads the proxy settings of the
+    // environment: this test holds the shared env lock for its whole body, and
+    // the proxy settings of the host are removed, so the requests of the run
+    // reach the local server and not a proxy.
+    let _env = env_lock();
+    let _proxy = remove_proxy_vars();
     let call = json!({"choices": [{"message": {"role": "assistant", "content": "",
         "tool_calls": [{"id": "a", "type": "function", "function": {"name": "shell",
             "arguments": "{\"command\":\"echo hi\"}"}}]}}]});
@@ -957,6 +961,12 @@ fn the_core_runs_with_a_tool_of_its_own() {
 /// A task whose time is up stops at once: no command runs, and the run says why.
 #[test]
 fn a_run_whose_deadline_has_passed_runs_no_command() {
+    // The core builds a ureq agent, which reads the proxy settings of the
+    // environment: this test holds the shared env lock for its whole body, and
+    // the proxy settings of the host are removed, so the requests of the run
+    // reach the local server and not a proxy.
+    let _env = env_lock();
+    let _proxy = remove_proxy_vars();
     // The task started two seconds ago and had one second for itself: it is over.
     // The clock is asked before the server starts: a clock that cannot go back that
     // far leaves nothing to test, and then no server is left waiting for a request.
@@ -999,6 +1009,12 @@ fn a_run_whose_deadline_has_passed_runs_no_command() {
 /// conversation is not shortened for it and no request is sent.
 #[test]
 fn a_key_that_fails_ends_the_run_at_once() {
+    // The core builds a ureq agent, which reads the proxy settings of the
+    // environment: this test holds the shared env lock for its whole body, and
+    // the proxy settings of the host are removed, so the requests of the run
+    // reach the local server and not a proxy.
+    let _env = env_lock();
+    let _proxy = remove_proxy_vars();
     let done = json!({"choices": [{"message": {"role": "assistant", "content": "all done"}}]});
     let (url, bodies) = serve(vec![(200, done)]);
     // The server waits for a request that never comes: the guard wakes it when the
@@ -1029,6 +1045,12 @@ fn a_key_that_fails_ends_the_run_at_once() {
 /// nothing is shortened, no request is sent and the key is asked once.
 #[test]
 fn a_key_that_fails_like_a_full_context_is_not_recovered_from() {
+    // The core builds a ureq agent, which reads the proxy settings of the
+    // environment: this test holds the shared env lock for its whole body, and
+    // the proxy settings of the host are removed, so the requests of the run
+    // reach the local server and not a proxy.
+    let _env = env_lock();
+    let _proxy = remove_proxy_vars();
     let done = json!({"choices": [{"message": {"role": "assistant", "content": "all done"}}]});
     let (url, bodies) = serve(vec![(200, done)]);
     // The server waits for a request that never comes: the guard wakes it when the

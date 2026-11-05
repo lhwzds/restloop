@@ -163,6 +163,17 @@ fn env_num(get: &impl Fn(&str) -> Option<String>, name: &str, default: u64) -> u
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::sync::{Mutex, MutexGuard};
+
+    /// The lock the tests that read the environment hold: the environment belongs
+    /// to the whole process, so only one of them may change it at a time.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// The lock of the environment, held for as long as it lives.
+    fn env_lock() -> MutexGuard<'static, ()> {
+        // A test that failed must not lock the others out: the lock is taken anyway.
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     /// The path a directory of a test has in the base dir: the name of the test,
     /// the pid of the process and the number of the attempt. Another run may have
@@ -371,6 +382,10 @@ mod tests {
     /// The key of a request: the file if there is one, else the variable.
     #[test]
     fn the_key_comes_from_the_file_when_there_is_one() {
+        // The directory of the test comes from the environment: another test must
+        // not change it while this one runs, so the shared env lock is held for
+        // the whole body.
+        let _env = env_lock();
         let temp = TempFile::new("key-file", "from the file");
         let file = temp.path().to_string_lossy().to_string();
         let key = key(get(&[
@@ -401,6 +416,10 @@ mod tests {
     /// A key file that cannot be read is an error, not an empty key.
     #[test]
     fn a_key_file_that_cannot_be_read_is_an_error() {
+        // The directory of the test comes from the environment: another test must
+        // not change it while this one runs, so the shared env lock is held for
+        // the whole body.
+        let _env = env_lock();
         // The file is not there: the path is of the directory of the test, so the
         // guard of the test cannot take a file that is not its own.
         let dir = TempDir::new("no-key");
@@ -413,6 +432,10 @@ mod tests {
     /// A session file of another version is no session: the CLI says so and stops.
     #[test]
     fn a_session_file_that_is_not_a_session_is_an_error() {
+        // The directory of the test comes from the environment: another test must
+        // not change it while this one runs, so the shared env lock is held for
+        // the whole body.
+        let _env = env_lock();
         let temp = TempFile::new(
             "bad-session",
             &json!({"version": 2, "messages": [{"role": "user", "content": "hi"}]}).to_string(),
@@ -430,6 +453,10 @@ mod tests {
     /// A session file that is not there is a new conversation with the system prompt.
     #[test]
     fn a_session_that_is_not_there_is_a_new_conversation() {
+        // The directory of the test and the shell of the prompt come from the
+        // environment: another test must not change them while this one runs, so
+        // the shared env lock is held for the whole body.
+        let _env = env_lock();
         // The file is not there: the path is of the directory of the test, so the
         // guard of the test cannot take a file that is not its own.
         let dir = TempDir::new("no-session");
