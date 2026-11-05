@@ -16,9 +16,9 @@ title: 构建、发布与贡献
 
 `src/tests.rs` 中的单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
 
-有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、溢出恢复、恢复 session、对空回复或没有 `choices` 的回复的重试；Responses API 下，按顺序发回的输出项、可重试和立即失败的错误；设置 deadline 时，挂起、500 和空回复都会提前以 `deadline of` 结束。只有它会设置 `RESTLOOP_*` 变量；它先清掉 `*_PROXY`，并检查命令拿不到其中任何一个；它和检查代理守卫的测试共用一把环境锁，改过的变量都会恢复。其他核心测试用一个记录命令的工具代替 shell，检查已过 deadline 时不运行任何命令、key 失败时立即结束运行。CLI 的测试在 `src/main.rs`，覆盖 `config()`、key 文件和 session 文件。
+有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、溢出恢复、恢复 session、对空回复或没有 `choices` 的回复的重试；Responses API 下，按顺序发回的输出项、可重试和立即失败的错误；设置 deadline 时，挂起、500 和空回复都会提前以 `deadline of` 结束。只有它会设置 restloop 自己的设置，并检查命令拿不到其中任何一个。用到环境的测试共用一把锁，发请求的测试会清掉 `*_PROXY`，改过的变量都会恢复。其他核心测试用一个记录命令的工具代替 shell，检查已过 deadline 时不运行任何命令、key 失败时立即结束运行。CLI 的测试在 `src/main.rs`，覆盖 `config()`、key 文件和 session 文件。
 
-<sub>来源: [tests.rs:167-297](../../src/tests.rs#L167-L297) · [tests.rs:30-96](../../src/tests.rs#L30-L96) · [tests.rs:431-456](../../src/tests.rs#L431-L456) · [tests.rs:820-910](../../src/tests.rs#L820-L910) · [tests.rs:932-1055](../../src/tests.rs#L932-L1055) · +4</sub>
+<sub>来源: [tests.rs:167-310](../../src/tests.rs#L167-L310) · [tests.rs:30-96](../../src/tests.rs#L30-L96) · [tests.rs:443-468](../../src/tests.rs#L443-L468) · [tests.rs:832-908](../../src/tests.rs#L832-L908) · [tests.rs:930-1077](../../src/tests.rs#L930-L1077) · +4</sub>
 
 ## 修改循环
 
@@ -27,7 +27,7 @@ title: 构建、发布与贡献
 - **选项用环境变量，默认值保持旧行为。** CLI 在 `config()` 中把它读进 `Config` 的一个字段；用 `env_num` 读取数值，这样无效值会回退到默认值；并把变量加到 `main()` 的 `--help` 文本和 README 里。
 - **保持面向模型的部分固定不变**（见 [概览](01-overview.md)）。修改 `system_prompt()` 或工具 schema 应附上 benchmark 证据。
 - **保持 prompt 前缀稳定。** 任何改写早先消息的操作都会破坏服务商的 prompt 缓存；RestLoop 只在服务商报告溢出时才这样做。基于阈值的裁剪在一次 A/B 测试显示没有收益后已被移除（`f09603f4`）。
-- **核心不碰环境，保持两个依赖。** `src/lib.rs` 不读任何环境变量、不启动任何进程；这些属于 CLI（`src/main.rs`）和命令执行器（`src/shell.rs`）。小巧和可读性正是意义所在。
+- **核心的设置都放在 `Config`，保持两个依赖。** `src/lib.rs` 不直接读取环境变量（其 HTTP 客户端 `ureq` 会遵循 `*_PROXY`），也不启动任何进程；这些属于 CLI（`src/main.rs`）和默认的命令执行器，即公开模块 `src/shell.rs`。小巧和可读性正是意义所在。
 
 <sub>来源: [lib.rs:1-8](../../src/lib.rs#L1-L8) · [main.rs:157-160](../../src/main.rs#L157-L160) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 

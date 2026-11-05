@@ -3,10 +3,10 @@
 [English](README.md) | 中文
 
 一个极简的 coding agent 循环：它替你持续推进任务，你可以去休息。
-不计测试约 860 行 Rust，其中约 520 行是 `src/lib.rs` 中的核心，其余是 CLI 和它的 shell
+不计测试约 860 行 Rust，其中约 520 行是 `src/lib.rs` 中的核心，其余是 CLI 和默认的命令
 执行器，打包成约 1.5 MB 的二进制。
 
-核心是 `src/lib.rs`：agent 循环和模型客户端。它不读任何环境变量，也不启动任何进程：
+核心是 `src/lib.rs`：agent 循环和模型客户端。它不直接读取环境变量（其 HTTP 客户端 `ureq` 会遵循 `*_PROXY`），也不启动任何进程：
 设置通过 `Config` 传入，命令交给你传入的执行器。它会写 stderr：每条命令和简短结果、
 重试、上下文溢出提示，以及保存 session 或最终回复文件失败的错误；每条回复的文本写到
 stdout。可以把它当作库使用，并提供你自己的命令执行器：
@@ -31,7 +31,7 @@ RestLoop 是一个个人开源项目。它只给模型一个工具 `shell`，
 
 | | |
 |---|---|
-| 源码 | `src/lib.rs`（核心），`src/main.rs` 和 `src/shell.rs`（CLI） |
+| 源码 | `src/lib.rs`（核心），`src/shell.rs`（默认的命令执行器，公开模块），`src/main.rs`（CLI） |
 | 测试 | `src/tests.rs`；CI 在 macOS、Linux 和 Windows 上运行 |
 | 依赖 | `ureq`（HTTPS）、`serde_json` |
 | 二进制（release） | macOS arm64 1.3 MB，Linux x86_64 1.9 MB（静态），Windows x86_64 1.5 MB |
@@ -99,8 +99,9 @@ assistant 的文本输出到 stdout；命令及其输出写入 stderr。
 1. 把对话和 `shell` 工具发送给模型。
 2. 执行每条请求的命令：不提供 stdin，在当前目录下的全新 shell 中运行。
    macOS/Linux 上用 `sh`；Windows 上安装了 Git Bash 就用它，
-   否则用 PowerShell。命令运行 120 s 后会连同它启动的所有进程一起被 kill
-   （可用 `RESTLOOP_TIMEOUT` 修改，例如用于耗时较长的构建）。把退出码和输出
+   否则用 PowerShell。命令运行 120 s 后，它的进程组（Windows 上是 job）会被 kill
+   （可用 `RESTLOOP_TIMEOUT` 修改，例如用于耗时较长的构建）；在 Unix 上，已脱离进程组的
+   子进程不会被 kill。把退出码和输出
    （截断到 10,000 个字符）发回给模型。
 3. 重复以上步骤，直到模型不调用工具直接回复，或达到 100 步
    （`RESTLOOP_MAX_STEPS`）。

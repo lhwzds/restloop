@@ -195,9 +195,9 @@ Time counts from process start: in stdin mode one budget covers all tasks.
 
 ### Running a command
 
-`run()` takes the runner as a callback; the CLI's `shell::shell()` runs each command in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash; PowerShell 5.1 adds a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0`, so nothing waits for input; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
+`run()` takes the runner as a callback; the CLI passes the public `shell::shell()`, which runs each command in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash; PowerShell 5.1 adds a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0`, so nothing waits for input; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
 
-After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is killed, and `exit:` still reports the shell's code. A background service survives if it redirects its output (`server > log 2>&1 &`). On Unix a child that left the group survives a timeout. On Unix the kill signals the process group directly, starting no shell; Windows uses `TerminateJobObject`. Inherited variables: [Usage and configuration](#usage).
+After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is killed, and `exit:` still reports the shell's code. A background service survives if it redirects its output (`server > log 2>&1 &`). On Unix a child that left the group survives a timeout. On Unix the kill signals the group directly; Windows uses `TerminateJobObject`. Inherited variables: [Usage and configuration](#usage).
 
 <sub>Sources: [shell.rs:28-125](../src/shell.rs#L28-L125) · [main.rs:48-50](../src/main.rs#L48-L50) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
@@ -221,9 +221,9 @@ The core's and the runner's tests live in `src/tests.rs`, the CLI's (settings, k
 
 Unit tests in `src/tests.rs` pin: `too_long()` accepts recorded provider wordings and rejects near misses; `drop_old_output()` halves until it returns 0; `trim_thinking()` spares the last two replies, empties `reasoning_content` and drops only `reasoning` items of `output_items`; `truncate()` keeps head and tail. `shell()` tests: the exit line with both streams, a timeout kill, a background `sleep 30 &` not blocking.
 
-One end-to-end test drives `run()` against `serve()`, a local canned-reply server: a tool call, overflow recovery, a session resume, retried empty replies or replies without `choices`; over the Responses API, output items sent back in order, retried and fatal failures; under a deadline, hangs, 500s and empty replies stop early with `deadline of`. It alone sets `RESTLOOP_*`, clears `*_PROXY` first and checks commands get none; it and a test of the proxy guard hold one environment lock, and every changed variable is put back. Other core tests use a recording tool and check that a passed deadline runs no command and a failing key ends the run at once. The CLI's tests in `src/main.rs` cover `config()`, the key file and session files.
+One end-to-end test drives `run()` against `serve()`, a local canned-reply server: a tool call, overflow recovery, a session resume, retried empty replies or replies without `choices`; over the Responses API, output items sent back in order, retried and fatal failures; under a deadline, hangs, 500s and empty replies stop early with `deadline of`. It alone sets restloop's settings and checks commands get none. Tests that use the environment hold one lock, tests that send requests clear `*_PROXY`, and changed variables are put back. Other core tests use a recording tool and check that a passed deadline runs no command and a failing key ends the run at once. The CLI's tests in `src/main.rs` cover `config()`, the key file and session files.
 
-<sub>Sources: [tests.rs:167-297](../src/tests.rs#L167-L297) · [tests.rs:30-96](../src/tests.rs#L30-L96) · [tests.rs:431-456](../src/tests.rs#L431-L456) · [tests.rs:820-910](../src/tests.rs#L820-L910) · [tests.rs:932-1055](../src/tests.rs#L932-L1055) · +4</sub>
+<sub>Sources: [tests.rs:167-310](../src/tests.rs#L167-L310) · [tests.rs:30-96](../src/tests.rs#L30-L96) · [tests.rs:443-468](../src/tests.rs#L443-L468) · [tests.rs:832-908](../src/tests.rs#L832-L908) · [tests.rs:930-1077](../src/tests.rs#L930-L1077) · +4</sub>
 
 ### Changing the loop
 
@@ -232,7 +232,7 @@ Conventions the history suggests:
 - **Options are environment variables with the old behaviour as default.** The CLI reads them in `config()` into a `Config` field; read numbers with `env_num` so an invalid value falls back to the default, and add the variable to the `--help` text in `main()` and to the README.
 - **Keep the model-facing surface fixed** (see [Overview](#overview)). Changes to `system_prompt()` or the tool schema should come with benchmark evidence.
 - **Keep the prompt prefix stable.** Anything that rewrites earlier messages breaks provider prompt caching; RestLoop does it only when the provider reports an overflow. A threshold-based trim was removed after an A/B showed no benefit (`f09603f4`).
-- **Keep the core free of the environment, with two dependencies.** `src/lib.rs` reads no variable and starts no process; that belongs to the CLI (`src/main.rs`) and the runner (`src/shell.rs`). Its size and readability are the point.
+- **Keep the core's settings in `Config`, with two dependencies.** `src/lib.rs` makes no direct environment reads (its HTTP client, `ureq`, honours `*_PROXY`) and starts no process; that belongs to the CLI (`src/main.rs`) and the default command runner, the public module `src/shell.rs`. Its size and readability are the point.
 
 <sub>Sources: [lib.rs:1-8](../src/lib.rs#L1-L8) · [main.rs:157-160](../src/main.rs#L157-L160) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 
@@ -265,17 +265,17 @@ The stamped `package.json` and `checksums.json` exist only on the runner and are
 
 Generated by Codocia from the code on every build: areas, each area's own description, import dependencies between areas, and the pages that explain them.
 
-In scope: 14 files, 2,872 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
+In scope: 14 files, 2,924 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
 
 ### Files
 
 **Repository root**
 
-- (root files) — 293 lines, 3 files. A minimal agent loop: one model, one shell tool.\
+- (root files) — 296 lines, 3 files. A minimal agent loop: one model, one shell tool.\
   Explained in: [Overview](#overview) (2), [Usage and configuration](#usage) (1), [Building, releasing and contributing](#contributing) (1)
 - `.github/` — 198 lines, 2 files\
   Explained in: [Building, releasing and contributing](#contributing) (3)
-- `src/` — 2,219 lines, 4 files. RestLoop's core: the agent loop and the model client.\
+- `src/` — 2,268 lines, 4 files. RestLoop's core: the agent loop and the model client.\
   Hub files: `lib.rs` `shell.rs` `tests.rs`\
   Explained in: [Overview](#overview) (3), [Usage and configuration](#usage) (7), [How it works](#how-it-works) (9), [Building, releasing and contributing](#contributing) (3)
 

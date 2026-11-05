@@ -19,4 +19,4 @@ These docs go one level below the README for RestLoop, a small Rust agent loop t
 
 - [Code structure](structure.md) — generated from the code: areas, dependencies, pages
 
-<sub>Generated from https://github.com/lhwzds/restloop @ `2cdc0d11b3`</sub>
+<sub>Generated from https://github.com/lhwzds/restloop @ `a8c2832e45`</sub>

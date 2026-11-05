@@ -4,10 +4,10 @@ English | [中文](README_CN.md)
 
 A minimal coding-agent loop: it keeps working on your task so you can rest.
 About 860 lines of Rust, tests aside — about 520 of them the core in `src/lib.rs`, the
-rest the CLI and its shell runner — packaged as a ~1.5 MB binary.
+rest the CLI and the default command runner — packaged as a ~1.5 MB binary.
 
-The core is `src/lib.rs`: the agent loop and the model client. It reads no environment
-variable and starts no process: the settings come in a `Config`, the commands go to the
+The core is `src/lib.rs`: the agent loop and the model client. It makes no direct
+environment reads (its HTTP client, `ureq`, honours `*_PROXY`) and starts no process: the settings come in a `Config`, the commands go to the
 runner you pass. It does write to stderr: each command and a short result, retries,
 context-overflow notices and session or last-message save errors; each reply's text goes
 to stdout. Use it as a library and give it your own command runner:
@@ -32,7 +32,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 
 | | |
 |---|---|
-| Source | `src/lib.rs` (the core), `src/main.rs` and `src/shell.rs` (the CLI) |
+| Source | `src/lib.rs` (the core), `src/shell.rs` (the default command runner, a public module), `src/main.rs` (the CLI) |
 | Tests | `src/tests.rs`; CI runs them on macOS, Linux and Windows |
 | Dependencies | `ureq` (HTTPS), `serde_json` |
 | Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |
@@ -104,8 +104,9 @@ not sign in or refresh tokens itself.
 1. Send the conversation and the `shell` tool to the model.
 2. Run each requested command with no stdin, in a fresh shell in the current
    directory: `sh` on macOS/Linux; on Windows Git Bash when it is installed,
-   otherwise PowerShell. A command is killed, with everything it started, after
-   120 s (`RESTLOOP_TIMEOUT` changes this, e.g. for long builds). Send back the
+   otherwise PowerShell. A command's process group (its job on Windows) is killed
+   after 120 s (`RESTLOOP_TIMEOUT` changes this, e.g. for long builds); on Unix a child
+   that left the group survives. Send back the
    exit code and output (truncated to 10,000 characters).
 3. Repeat until the model replies without a tool call, or after 100 steps
    (`RESTLOOP_MAX_STEPS`).

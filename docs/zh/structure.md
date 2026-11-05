@@ -8,17 +8,17 @@ title: 代码结构
 
 本页由 Codocia 根据代码自动生成，每次 build 重新计算：功能区划分、各区自带的说明、区之间的 import 依赖，以及讲解各区的页面。
 
-范围内共 14 个文件，2,872 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
+范围内共 14 个文件，2,924 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
 
 ## 文件结构
 
 **仓库根目录**
 
-- （根目录文件） — 293 行，3 个文件。A minimal agent loop: one model, one shell tool.\
+- （根目录文件） — 296 行，3 个文件。A minimal agent loop: one model, one shell tool.\
   讲解：[概览](01-overview.md) (2), [用法与配置](02-usage.md) (1), [构建、发布与贡献](04-contributing.md) (1)
 - `.github/` — 198 行，2 个文件\
   讲解：[构建、发布与贡献](04-contributing.md) (3)
-- `src/` — 2,219 行，4 个文件。RestLoop's core: the agent loop and the model client.\
+- `src/` — 2,268 行，4 个文件。RestLoop's core: the agent loop and the model client.\
   核心文件：`lib.rs` `shell.rs` `tests.rs`\
   讲解：[概览](01-overview.md) (3), [用法与配置](02-usage.md) (7), [工作原理](03-how-it-works.md) (9), [构建、发布与贡献](04-contributing.md) (3)
 
