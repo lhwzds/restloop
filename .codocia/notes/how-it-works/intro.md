@@ -2,12 +2,11 @@
 title: 
 order: 0
 evidence:
-  - src/main.rs:124-129 #e6a6524cff9c
-  - src/main.rs:138-148 #e9aed182c6f9
-  - src/main.rs:213-215 #6ebd9760f8d2
+  - src/lib.rs:53-79 #aab475d7b884
+  - src/lib.rs:146-150 #b5594b99cac4
 ---
 
-Everything happens in `run()`: one iteration (a step) is one model reply plus the commands it requested.
+Everything happens in `run()` in `src/lib.rs`: one iteration (a step) is one model reply plus the commands it requested.
 
 ```mermaid
 flowchart TD
@@ -15,7 +14,7 @@ flowchart TD
   B -->|"context overflow"| C["drop_old_output()"] --> B
   B --> D[append assistant message, print its text]
   D -->|no tool_calls| E[save session, write last message, return Ok]
-  D -->|tool_calls| F["shell() each command in order"]
+  D -->|tool_calls| F["the tool runs each command in order"]
   F --> G[append one tool message per call; save session]
   G -->|step < RESTLOOP_MAX_STEPS| B
   G -->|limit reached| H["Err: stopped after N steps"]

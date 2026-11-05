@@ -3,11 +3,14 @@
 English | [中文](README_CN.md)
 
 A minimal coding-agent loop: it keeps working on your task so you can rest.
-About 940 lines of Rust — about 500 of them the core in `src/lib.rs`, the rest the CLI
-and its shell runner — packaged as a ~1.5 MB binary.
+About 860 lines of Rust, tests aside — about 520 of them the core in `src/lib.rs`, the
+rest the CLI and its shell runner — packaged as a ~1.5 MB binary.
 
-The core is `src/lib.rs` (about 500 lines): the agent loop and the model client, with no
-process handling of its own. Use it as a library and give it your own command runner:
+The core is `src/lib.rs`: the agent loop and the model client. It reads no environment
+variable and starts no process: the settings come in a `Config`, the commands go to the
+runner you pass. It does write to stderr: each command and a short result, retries,
+context-overflow notices and session or last-message save errors; each reply's text goes
+to stdout. Use it as a library and give it your own command runner:
 
 ```rust
 use restloop::serde_json::json;

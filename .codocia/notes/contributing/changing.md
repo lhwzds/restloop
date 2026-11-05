@@ -2,8 +2,9 @@
 title: Changing the loop
 order: 10
 evidence:
-  - src/main.rs:116-122 #579b9cedf39b
-  - src/tests.rs:1-6 #3c2abef9f5c2
+  - src/lib.rs:1-8 #3eeca20e9983
+  - src/main.rs:157-160 #e9b807c7864d
+  - src/tests.rs:1-2 #0cb9d8c7f1af
   - commit:3b27682c
   - commit:740555b1
   - commit:f09603f4
@@ -11,7 +12,7 @@ evidence:
 
 Conventions the history suggests:
 
-- **Options are environment variables with the old behaviour as default.** Read numbers with `env_num` so an invalid value falls back to the default, and add the variable to the `--help` text in `main()` and to the README.
+- **Options are environment variables with the old behaviour as default.** The CLI reads them in `config()` into a `Config` field; read numbers with `env_num` so an invalid value falls back to the default, and add the variable to the `--help` text in `main()` and to the README.
 - **Keep the model-facing surface fixed** (see [[overview]]). Changes to `system_prompt()` or the tool schema should come with benchmark evidence.
 - **Keep the prompt prefix stable.** Anything that rewrites earlier messages breaks provider prompt caching; RestLoop does it only when the provider reports an overflow. A threshold-based trim was removed after an A/B showed no benefit (`f09603f4`).
-- **Keep the program in one file with two dependencies.** The program is `src/main.rs`; its tests live in `src/tests.rs`. Its size and readability are the point.
+- **Keep the core free of the environment, with two dependencies.** `src/lib.rs` reads no variable and starts no process; that belongs to the CLI (`src/main.rs`) and the runner (`src/shell.rs`). Its size and readability are the point.

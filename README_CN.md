@@ -3,7 +3,27 @@
 [English](README.md) | 中文
 
 一个极简的 coding agent 循环：它替你持续推进任务，你可以去休息。
-不到 700 行 Rust，打包成约 1.5 MB 的二进制。
+不计测试约 860 行 Rust，其中约 520 行是 `src/lib.rs` 中的核心，其余是 CLI 和它的 shell
+执行器，打包成约 1.5 MB 的二进制。
+
+核心是 `src/lib.rs`：agent 循环和模型客户端。它不读任何环境变量，也不启动任何进程：
+设置通过 `Config` 传入，命令交给你传入的执行器。它会写 stderr：每条命令和简短结果、
+重试、上下文溢出提示，以及保存 session 或最终回复文件失败的错误；每条回复的文本写到
+stdout。可以把它当作库使用，并提供你自己的命令执行器：
+
+```rust
+use restloop::serde_json::json;
+let cfg = restloop::Config { model: "gpt-4o".into(), base_url: "https://api.openai.com/v1".into(),
+    key: Box::new(|| Ok(std::env::var("OPENAI_API_KEY").unwrap_or_default())),
+    responses: false, reasoning_effort: None, max_steps: 100, timeout: 120,
+    deadline: None, start: std::time::Instant::now(), log_usage: false,
+    last_message: None, session: None };
+let cwd = std::env::current_dir().unwrap_or_default().display().to_string();
+let mut messages = vec![
+    json!({"role": "system", "content": restloop::system_prompt(&cfg, "sh", std::env::consts::OS, &cwd)}),
+    json!({"role": "user", "content": "fix the failing test"})];
+restloop::run(&cfg, &mut messages, &mut |cmd, secs| my_runner(cmd, secs))?;
+```
 
 RestLoop 是一个个人开源项目。它只给模型一个工具 `shell`，
 并循环执行，直到模型不再调用这个工具。模型通过 shell 命令读、写、编辑文件，
@@ -11,7 +31,7 @@ RestLoop 是一个个人开源项目。它只给模型一个工具 `shell`，
 
 | | |
 |---|---|
-| 源码 | `src/main.rs`，不到 700 行 |
+| 源码 | `src/lib.rs`（核心），`src/main.rs` 和 `src/shell.rs`（CLI） |
 | 测试 | `src/tests.rs`；CI 在 macOS、Linux 和 Windows 上运行 |
 | 依赖 | `ureq`（HTTPS）、`serde_json` |
 | 二进制（release） | macOS arm64 1.3 MB，Linux x86_64 1.9 MB（静态），Windows x86_64 1.5 MB |

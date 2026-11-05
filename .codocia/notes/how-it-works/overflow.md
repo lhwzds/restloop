@@ -2,8 +2,8 @@
 title: Recovering from a full context window
 order: 30
 evidence:
-  - src/main.rs:139-148 #970aaf8029af
-  - src/main.rs:269-312 #a468d5a8be5d
+  - src/lib.rs:68-79 #87067936cf17
+  - src/lib.rs:213-249 #73b2c15e6565
   - commit:21f3c1dc
   - commit:04004c68
 ---

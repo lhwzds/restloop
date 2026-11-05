@@ -8,7 +8,7 @@ title: 用法与配置
 
 RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命令行选项。其余的一切就是任务文本和环境变量。本页列出完整的接口；[工作原理](03-how-it-works.md) 解释每个选项对循环有什么影响。
 
-<sub>来源: [main.rs:16-28](../../src/main.rs#L16-L28)</sub>
+<sub>来源: [main.rs:17-25](../../src/main.rs#L17-L25)</sub>
 
 ## 单个任务或 stdin 会话
 
@@ -19,7 +19,7 @@ RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命
 
 状态 2 表示根本没有开始运行：`RESTLOOP_MODEL` 未设置，或者 `RESTLOOP_SESSION` 指向的文件不是 session 文件。
 
-<sub>来源: [main.rs:16-28](../../src/main.rs#L16-L28) · [main.rs:30-63](../../src/main.rs#L30-L63)</sub>
+<sub>来源: [main.rs:17-36](../../src/main.rs#L17-L36) · [main.rs:56-70](../../src/main.rs#L56-L70)</sub>
 
 ## 环境变量
 
@@ -40,13 +40,13 @@ RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命
 
 数值无法解析为无符号整数时，会静默回退到默认值（`env_num`）。`RESTLOOP_LOG_USAGE` 必须恰好是 `1`；对 key 文件和推理强度来说，空字符串等同于未设置。
 
-<sub>来源: [main.rs:11-14](../../src/main.rs#L11-L14) · [main.rs:110-122](../../src/main.rs#L110-L122) · [main.rs:130-138](../../src/main.rs#L130-L138) · [main.rs:314-351](../../src/main.rs#L314-L351) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [main.rs:12-15](../../src/main.rs#L12-L15) · [main.rs:73-106](../../src/main.rs#L73-L106) · [main.rs:147-160](../../src/main.rs#L147-L160) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ## 命令会继承什么
 
 RestLoop 自己的设置不再传入命令的环境：命令启动前会去掉所有 `RESTLOOP_*` 名称（`restloop_var`），所以 key、key 文件和 URL 都不会传给命令；在 Windows 上匹配不区分大小写。其他变量命令都会继承，包括以其他名字保存的 key 副本。以同一用户运行的命令仍然可以读到 restloop 的环境（`/proc/$PPID/environ`、`ps -E`），知道路径时也能读 key 文件；真正的解决办法是沙箱或换一个用户。
 
-<sub>来源: [main.rs:555-567](../../src/main.rs#L555-L567) · [main.rs:604-609](../../src/main.rs#L604-L609) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
+<sub>来源: [shell.rs:13-26](../../src/shell.rs#L13-L26) · [shell.rs:66-71](../../src/shell.rs#L66-L71) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
 
 ## stdout 和 stderr 各输出什么
 
@@ -58,15 +58,15 @@ stdout 只输出模型的文本：每条非空回复都会去掉首尾空白后�
 usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapsed=41s
 ```
 
-服务商没有返回的字段打印为 `null`。
+服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()` 而不是 CLI，所以把它当作库使用的程序也会在 stderr 上看到：命令及结果、重试、溢出提示，以及保存 session 或最终回复文件失败的错误。只有 stdin 提示符 `> ` 属于 CLI。
 
-<sub>来源: [main.rs:149-163](../../src/main.rs#L149-L163) · [main.rs:186-211](../../src/main.rs#L186-L211) · [main.rs:142-145](../../src/main.rs#L142-L145)</sub>
+<sub>来源: [lib.rs:48-52](../../src/lib.rs#L48-L52) · [lib.rs:80-94](../../src/lib.rs#L80-L94) · [lib.rs:121-122](../../src/lib.rs#L121-L122) · [lib.rs:129-133](../../src/lib.rs#L129-L133) · [lib.rs:396-397](../../src/lib.rs#L396-L397) · +1</sub>
 
 ## 最终回复文件
 
 设置 `RESTLOOP_LAST_MESSAGE=<path>` 后，每个任务开始时先删除该文件；当模型不调用工具直接回复时，把回复文本加上末尾换行写入该文件。对于把推理内容内联在回复里的模型，开头的 `<think>` 块会被截掉，截到第一个 `</think>` 为止（没有闭合时什么都不剩）；其他回复即使引用了 `</think>` 也会完整写入。两种情况都会去掉首尾空白。删除只是尽力而为（错误会被忽略），所以提前结束的运行（步数上限、API 错误、被 kill）通常不会留下文件，而不是留下上一次的答案；需要确定性时，每次运行都传一个新路径。
 
-<sub>来源: [main.rs:132-137](../../src/main.rs#L132-L137) · [main.rs:176-184](../../src/main.rs#L176-L184) · [main.rs:301-309](../../src/main.rs#L301-L309) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
+<sub>来源: [lib.rs:63-67](../../src/lib.rs#L63-L67) · [lib.rs:107-115](../../src/lib.rs#L107-L115) · [lib.rs:251-259](../../src/lib.rs#L251-L259) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
 ## Session 文件：恢复与分叉
 
@@ -80,4 +80,4 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 用同一路径再次运行即可恢复；先复制文件就是分叉。保存的系统 prompt 原样复用。设置了 `RESTLOOP_DEADLINE` 时，恢复后的任务末尾会追加 `[You have Ns in total for this request; the time used in tool results counts from now.]`。每一步之后都会通过 `<path>.<pid>.tmp` 重命名来替换文件，所以进程被 kill 后，文件里保存的是最后一个完整的步骤。并发运行不会损坏文件，但最后写入的会覆盖前面的。
 
-<sub>来源: [main.rs:29-30](../../src/main.rs#L29-L30) · [main.rs:64-81](../../src/main.rs#L64-L81) · [main.rs:217-230](../../src/main.rs#L217-L230) · [README.md:62-79](../../README.md#L62-L79) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +2</sub>
+<sub>来源: [main.rs:37-47](../../src/main.rs#L37-L47) · [main.rs:108-131](../../src/main.rs#L108-L131) · [lib.rs:153-167](../../src/lib.rs#L153-L167) · [README.md:83-100](../../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>

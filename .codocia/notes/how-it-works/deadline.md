@@ -2,11 +2,12 @@
 title: The time budget
 order: 50
 evidence:
-  - src/main.rs:84-96 #d6d7e3cb4087
-  - src/main.rs:99-109 #2e145d43c30d
-  - src/main.rs:192-203 #7b0f13bf0b23
-  - src/main.rs:348-356 #04e8e7844c5b
-  - src/main.rs:402-415 #884710d6423d
+  - src/lib.rs:172-180 #fbcf814957a0
+  - src/main.rs:38-46 #02e9290cdf22
+  - src/lib.rs:123-128 #7bdd6b0a9261
+  - src/lib.rs:134-139 #4758f987fd4d
+  - src/lib.rs:303-319 #17674fff2dce
+  - src/lib.rs:380-392 #a50f37f2e39f
   - commit:f9d3b4f0
   - commit:a4ba4994
 ---
@@ -16,6 +17,6 @@ evidence:
 1. A new conversation's system prompt ends with `You have Ns in total for this task; each tool result ends with the time used so far.`; a resumed session's new task, a similar sentence ([[usage]]).
 2. Each command's tool result ends with `[time used: Ns of Ds]`.
 3. A command's timeout is the smaller of `RESTLOOP_TIMEOUT` and the time left (floored at 1 s).
-4. A model request gets the time left after the key file is read (600 s at most); none starts after it: `restloop: deadline of <N>s reached`. A retry sleep reaching it stops with `deadline of <N>s reached (<what>: <text>)`; a failed fifth attempt only if the deadline has passed (`a4ba4994`).
+4. A model request gets the time left after the key is read (600 s at most); none starts after it: `restloop: deadline of <N>s reached`. A retry sleep reaching it stops with `deadline of <N>s reached (<what>: <text>)`; a failed fifth attempt only if the deadline has passed (`a4ba4994`).
 
 Time counts from process start: in stdin mode one budget covers all tasks.

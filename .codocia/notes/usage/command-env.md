@@ -2,8 +2,8 @@
 title: What commands inherit
 order: 25
 evidence:
-  - src/main.rs:555-567 #dff89a00c208
-  - src/main.rs:604-609 #b5d0e47ff9c2
+  - src/shell.rs:13-26 #dcb06b602531
+  - src/shell.rs:66-71 #b5d0e47ff9c2
   - commit:8d5e3a78
 ---
 

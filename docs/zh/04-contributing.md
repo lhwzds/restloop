@@ -8,28 +8,28 @@ title: 构建、发布与贡献
 
 `cargo build --release` 生成 `target/release/restloop`。这个 crate 使用 edition 2024，并在 `if` 中使用 `let` 链，所以需要两者都已稳定的工具链（Rust 1.88 或更新）。release profile 针对体积优化（`opt-level = "z"`、LTO、单个 codegen unit、`panic = "abort"`、strip）。
 
-测试位于 `src/tests.rs`，用 `cargo test` 运行；`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 pull request 时，在 macOS、Linux 和 Windows 上运行 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 和测试。提 pull request 之前，请先在本地跑一遍这三条命令。另有一个在 Linux 上运行的 `docs` job，检出完整历史（`fetch-depth: 0`，这样引用的 commit 才能找到），安装 Codocia 0.2 并运行 `codocia check`，所以过时的文档或 `README_CN.md` 会让 CI 失败。
+核心和命令执行器的测试在 `src/tests.rs`，CLI 的测试（设置、key 文件、session 文件）在 `src/main.rs`，都用 `cargo test` 运行；`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 pull request 时，在 macOS、Linux 和 Windows 上运行 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 和测试。提 pull request 之前，请先在本地跑一遍这三条命令。另有一个在 Linux 上运行的 `docs` job，检出完整历史（`fetch-depth: 0`，这样引用的 commit 才能找到），安装 Codocia 0.2 并运行 `codocia check`，所以过时的文档或 `README_CN.md` 会让 CI 失败。
 
-<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [main.rs:634-641](../../src/main.rs#L634-L641) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
+<sub>来源: [Cargo.toml:1-18](../../Cargo.toml#L1-L18) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [main.rs:162-163](../../src/main.rs#L162-L163) · [ci.yml:1-34](../../.github/workflows/ci.yml#L1-L34)</sub>
 
 ## 测试覆盖了什么
 
-单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
+`src/tests.rs` 中的单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复，清空 `reasoning_content`，并且只删除 `output_items` 中的 `reasoning` 项；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
 
-有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、一次溢出的 400 及其重试、恢复 session、对没有 `choices`、回复为空或只有推理内容的 200 的重试，以及连续五次空回复。然后是 Responses API：key 文件、按顺序发回的输出项（只有 `message` 和 `function_call` 项去掉 `id`）、对服务器错误和套餐暂时不可用的重试、溢出恢复，以及在套餐用尽、内容过滤、无效请求或 key 文件无法读取时立即失败。设置 deadline 时：服务器在 200 头之前或之后挂起、持续返回 500 或空回复，都会提前以 `deadline of` 结束；400 正常报告；已过 deadline 则不发出任何请求。只有它会涉及 `RESTLOOP_*` 变量，先清掉这些变量以及 `*_PROXY`，并检查命令拿不到其中任何一个。
+有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的本地服务器：一次工具调用、溢出恢复、恢复 session、对空回复或没有 `choices` 的回复的重试；Responses API 下，按顺序发回的输出项、可重试和立即失败的错误；设置 deadline 时，挂起、500 和空回复都会提前以 `deadline of` 结束。只有它会涉及 `RESTLOOP_*` 变量，先清掉这些变量以及 `*_PROXY`，并检查命令拿不到其中任何一个。其他核心测试用一个记录命令的工具代替 shell，检查已过 deadline 时不运行任何命令、key 失败时立即结束运行。CLI 的测试在 `src/main.rs`，覆盖 `config()`、key 文件和 session 文件。
 
-<sub>来源: [tests.rs:12-101](../../src/tests.rs#L12-L101) · [tests.rs:145-200](../../src/tests.rs#L145-L200) · [tests.rs:180-465](../../src/tests.rs#L180-L465) · [commit 4c468f27](https://github.com/lhwzds/restloop/commit/4c468f27) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64) · +1</sub>
+<sub>来源: [tests.rs:63-193](../../src/tests.rs#L63-L193) · [tests.rs:398-424](../../src/tests.rs#L398-L424) · [tests.rs:786-855](../../src/tests.rs#L786-L855) · [tests.rs:877-1000](../../src/tests.rs#L877-L1000) · [main.rs:162-360](../../src/main.rs#L162-L360) · +3</sub>
 
 ## 修改循环
 
 历史中总结出的约定：
 
-- **选项用环境变量，默认值保持旧行为。** 用 `env_num` 读取数值，这样无效值会回退到默认值；并把变量加到 `main()` 的 `--help` 文本和 README 里。
+- **选项用环境变量，默认值保持旧行为。** CLI 在 `config()` 中把它读进 `Config` 的一个字段；用 `env_num` 读取数值，这样无效值会回退到默认值；并把变量加到 `main()` 的 `--help` 文本和 README 里。
 - **保持面向模型的部分固定不变**（见 [概览](01-overview.md)）。修改 `system_prompt()` 或工具 schema 应附上 benchmark 证据。
 - **保持 prompt 前缀稳定。** 任何改写早先消息的操作都会破坏服务商的 prompt 缓存；RestLoop 只在服务商报告溢出时才这样做。基于阈值的裁剪在一次 A/B 测试显示没有收益后已被移除（`f09603f4`）。
-- **程序保持一个文件、两个依赖。** 程序就是 `src/main.rs`，测试在 `src/tests.rs`。程序的小巧和可读性正是意义所在。
+- **核心不碰环境，保持两个依赖。** `src/lib.rs` 不读任何环境变量、不启动任何进程；这些属于 CLI（`src/main.rs`）和命令执行器（`src/shell.rs`）。小巧和可读性正是意义所在。
 
-<sub>来源: [main.rs:116-122](../../src/main.rs#L116-L122) · [tests.rs:1-6](../../src/tests.rs#L1-L6) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [lib.rs:1-8](../../src/lib.rs#L1-L8) · [main.rs:157-160](../../src/main.rs#L157-L160) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 
 ## 如何发布一个版本
 

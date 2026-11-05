@@ -2,7 +2,7 @@
 title: Requests and retries
 order: 20
 evidence:
-  - src/main.rs:314-423 #601ebd333a85
+  - src/lib.rs:284-400 #0f16b3b9d7a0
   - commit:333b7b64
 ---
 

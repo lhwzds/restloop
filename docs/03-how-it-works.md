@@ -6,7 +6,7 @@ title: How it works
 
 <sub>**English** · [中文](zh/03-how-it-works.md)</sub>
 
-Everything happens in `run()`: one iteration (a step) is one model reply plus the commands it requested.
+Everything happens in `run()` in `src/lib.rs`: one iteration (a step) is one model reply plus the commands it requested.
 
 ```mermaid
 flowchart TD
@@ -14,13 +14,13 @@ flowchart TD
   B -->|"context overflow"| C["drop_old_output()"] --> B
   B --> D[append assistant message, print its text]
   D -->|no tool_calls| E[save session, write last message, return Ok]
-  D -->|tool_calls| F["shell() each command in order"]
+  D -->|tool_calls| F["the tool runs each command in order"]
   F --> G[append one tool message per call; save session]
   G -->|step < RESTLOOP_MAX_STEPS| B
   G -->|limit reached| H["Err: stopped after N steps"]
 ```
 
-<sub>Sources: [main.rs:124-129](../src/main.rs#L124-L129) · [main.rs:138-148](../src/main.rs#L138-L148) · [main.rs:213-215](../src/main.rs#L213-L215)</sub>
+<sub>Sources: [lib.rs:53-79](../src/lib.rs#L53-L79) · [lib.rs:146-150](../src/lib.rs#L146-L150)</sub>
 
 ## What the conversation holds
 
@@ -28,7 +28,7 @@ The system prompt from `system_prompt()` comes first: instructions plus OS, shel
 
 Each tool call gets one `tool` message with the matching `tool_call_id`. Arguments that are not JSON with a `command` string get an error quoting them, so the model can fix them.
 
-<sub>Sources: [main.rs:83-100](../src/main.rs#L83-L100) · [main.rs:159-175](../src/main.rs#L159-L175) · [main.rs:186-211](../src/main.rs#L186-L211)</sub>
+<sub>Sources: [lib.rs:169-180](../src/lib.rs#L169-L180) · [lib.rs:90-106](../src/lib.rs#L90-L106) · [lib.rs:117-120](../src/lib.rs#L117-L120) · [lib.rs:145-146](../src/lib.rs#L145-L146)</sub>
 
 ## Requests and retries
 
@@ -36,7 +36,7 @@ Each tool call gets one `tool` message with the matching `tool_call_id`. Argumen
 
 Network errors (unreadable bodies included), HTTP 429, 5xx, a 200 without `choices[0].message` (some MiniMax errors, `333b7b64`) and an empty reply (no tool call, no text outside a leading `<think>`) are retried: five attempts, sleeping 2, 4, 8, 16 s, printing `restloop: <what>, retrying`; a fifth empty reply is the final one. A body with `insufficient_quota` or `subscription_sharing_usage_limit_exceeded` fails at once, unless the reply is empty. Other statuses, and the fifth failure, fail the task with `<what>: <text>` (`HTTP <status>`, `request failed` or `no reply`), or the deadline form below. A non-JSON 200 fails at once with `bad response`.
 
-<sub>Sources: [main.rs:314-423](../src/main.rs#L314-L423) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
+<sub>Sources: [lib.rs:284-400](../src/lib.rs#L284-L400) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
 ## The Responses API
 
@@ -44,7 +44,7 @@ With `RESTLOOP_WIRE_API=responses`, `complete()` posts to `/responses`. The conv
 
 `responses_reply()` reads the event stream until `response.completed` and builds a chat reply: text (or refusal), tool calls, usage under chat names, and `output_items`, the output in `output_index` order minus message and call ids. These go back verbatim, so reasoning survives without server-side storage. A stream that breaks or ends early is retried; a reported failure (`response.failed`, `response.incomplete`, `error`) only for `server_error`, `rate_limit` or `unavailable`.
 
-<sub>Sources: [main.rs:318-333](../src/main.rs#L318-L333) · [main.rs:356-361](../src/main.rs#L356-L361) · [main.rs:384-398](../src/main.rs#L384-L398) · [main.rs:437-550](../src/main.rs#L437-L550)</sub>
+<sub>Sources: [lib.rs:285-298](../src/lib.rs#L285-L298) · [lib.rs:327-337](../src/lib.rs#L327-L337) · [lib.rs:363-379](../src/lib.rs#L363-L379) · [lib.rs:402-515](../src/lib.rs#L402-L515)</sub>
 
 ## Recovering from a full context window
 
@@ -52,13 +52,13 @@ Since `21f3c1dc`, `too_long()` recognises a context overflow: an HTTP 400 or 413
 
 On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` messages not yet shortened to their first line plus `[output removed to fit the context window]`, empties old reasoning with `trim_thinking()`, and the request is retried. Each retry halves the rest; when nothing changes, the error is returned. Commands and visible replies stay, so the model knows what it did.
 
-<sub>Sources: [main.rs:139-148](../src/main.rs#L139-L148) · [main.rs:269-312](../src/main.rs#L269-L312) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
+<sub>Sources: [lib.rs:68-79](../src/lib.rs#L68-L79) · [lib.rs:213-249](../src/lib.rs#L213-L249) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
 ## Emptying old reasoning
 
 `trim_thinking()` empties the reasoning of every assistant message except the last two: `reasoning_content` becomes `""`, `reasoning` items are removed from `output_items` (message items keep their phase), and a leading `<think>` block is cut from `content`. Since `70f40924` the key is kept with an empty value rather than deleted, since DeepSeek's thinking mode rejects (HTTP 400) a tool-turn assistant message missing it. Already emptied messages do not count as changed, so retries terminate.
 
-<sub>Sources: [main.rs:236-267](../src/main.rs#L236-L267) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>Sources: [lib.rs:182-211](../src/lib.rs#L182-L211) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ## The time budget
 
@@ -67,22 +67,22 @@ On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` m
 1. A new conversation's system prompt ends with `You have Ns in total for this task; each tool result ends with the time used so far.`; a resumed session's new task, a similar sentence ([Usage and configuration](02-usage.md)).
 2. Each command's tool result ends with `[time used: Ns of Ds]`.
 3. A command's timeout is the smaller of `RESTLOOP_TIMEOUT` and the time left (floored at 1 s).
-4. A model request gets the time left after the key file is read (600 s at most); none starts after it: `restloop: deadline of <N>s reached`. A retry sleep reaching it stops with `deadline of <N>s reached (<what>: <text>)`; a failed fifth attempt only if the deadline has passed (`a4ba4994`).
+4. A model request gets the time left after the key is read (600 s at most); none starts after it: `restloop: deadline of <N>s reached`. A retry sleep reaching it stops with `deadline of <N>s reached (<what>: <text>)`; a failed fifth attempt only if the deadline has passed (`a4ba4994`).
 
 Time counts from process start: in stdin mode one budget covers all tasks.
 
-<sub>Sources: [main.rs:84-96](../src/main.rs#L84-L96) · [main.rs:99-109](../src/main.rs#L99-L109) · [main.rs:192-203](../src/main.rs#L192-L203) · [main.rs:348-356](../src/main.rs#L348-L356) · [main.rs:402-415](../src/main.rs#L402-L415) · +2</sub>
+<sub>Sources: [lib.rs:172-180](../src/lib.rs#L172-L180) · [main.rs:38-46](../src/main.rs#L38-L46) · [lib.rs:123-128](../src/lib.rs#L123-L128) · [lib.rs:134-139](../src/lib.rs#L134-L139) · [lib.rs:303-319](../src/lib.rs#L303-L319) · +3</sub>
 
 ## Running a command
 
-Each command runs in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash; PowerShell 5.1 adds a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0` is set, so nothing waits for input; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
+`run()` takes the runner as a callback; the CLI's `shell::shell()` runs each command in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash; PowerShell 5.1 adds a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0`, so nothing waits for input; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
 
-After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is killed, and `exit:` still reports the shell's code. A background service survives once it stops holding those pipes, e.g. by redirecting output (`server > log 2>&1 &`). A timeout kills the process group; on Unix a child that left it survives. On Unix the kill signals the process group directly, starting no shell; Windows uses `TerminateJobObject`. Inherited variables: [Usage and configuration](02-usage.md).
+After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is killed, and `exit:` still reports the shell's code. A background service survives if it redirects its output (`server > log 2>&1 &`). On Unix a child that left the group survives a timeout. On Unix the kill signals the process group directly, starting no shell; Windows uses `TerminateJobObject`. Inherited variables: [Usage and configuration](02-usage.md).
 
-<sub>Sources: [main.rs:551-641](../src/main.rs#L551-L641) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>Sources: [shell.rs:28-125](../src/shell.rs#L28-L125) · [main.rs:48-50](../src/main.rs#L48-L50) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ## What the model sees from a command
 
-A command's tool result is `exit: <status>` on the first line, then the combined output. Two differ: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Invalid UTF-8 is replaced.
+A command's tool result is `exit: <status>` on the first line, then the combined output. Except: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Invalid UTF-8 is replaced.
 
-<sub>Sources: [main.rs:655-676](../src/main.rs#L655-L676)</sub>
+<sub>Sources: [shell.rs:72-75](../src/shell.rs#L72-L75) · [shell.rs:123-138](../src/shell.rs#L123-L138) · [lib.rs:142-144](../src/lib.rs#L142-L144)</sub>
