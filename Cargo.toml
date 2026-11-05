@@ -2,7 +2,7 @@
 name = "restloop"
 version = "0.4.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "A minimal agent loop: one model, one shell tool."
 license = "Apache-2.0"
 repository = "https://github.com/lhwzds/restloop"

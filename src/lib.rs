@@ -1,8 +1,9 @@
 //! RestLoop's core: the agent loop and the model client.
 //!
-//! The core reads no environment variable and starts no process: the model, the
-//! settings and the key come in through [`Config`], the commands come from the tool
-//! the caller passes to [`run`]. [`shell`] holds the default command runner.
+//! The core makes no direct environment reads (its HTTP client, `ureq`, honours
+//! `*_PROXY`) and starts no process: the model, the settings and the key come in
+//! through [`Config`], the commands come from the tool the caller passes to [`run`].
+//! [`shell`] holds the default command runner.
 //!
 //! The core holds no settings of its own: the steps and the timeout come from the
 //! caller, and the CLI's defaults live in `src/main.rs`.
