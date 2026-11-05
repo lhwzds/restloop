@@ -2,10 +2,10 @@
 title: The Responses API
 order: 25
 evidence:
-  - src/lib.rs:285-298 #4f6c55f66a57
-  - src/lib.rs:327-337 #487261105453
-  - src/lib.rs:363-379 #ba06b77e268a
-  - src/lib.rs:402-515 #73997b91a467
+  - src/lib.rs:286-299 #4f6c55f66a57
+  - src/lib.rs:328-338 #487261105453
+  - src/lib.rs:364-380 #ba06b77e268a
+  - src/lib.rs:403-516 #73997b91a467
 ---
 
 With `RESTLOOP_WIRE_API=responses`, `complete()` posts to `/responses`. The conversation stays in chat format, in memory and on disk; `responses_request()` converts it per request: a leading system message becomes `instructions`, a `tool` message a `function_call_output`, and an assistant message its `output_items` or, lacking them, its text and `function_call` items. It adds `store: false`, `stream: true`, encrypted reasoning in `include`, a `prompt_cache_key` hashed from the system prompt and, if set, `reasoning.effort`.

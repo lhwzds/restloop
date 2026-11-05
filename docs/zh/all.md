@@ -16,7 +16,7 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 
 它的前身 RestFlow（到 0.5 为止）已经膨胀成一个 TUI、一个 daemon、一个 runner 加一套可执行 skill 系统，RestLoop 正是为此而生。commit `33511748` 把这些全部替换成一个文件、不做任何存储，`cad33d13` 将其改名为 RestLoop，版本号从 0.1.0 重新开始。之后的大多数功能（可配置的步数上限、时间预算、用量日志）都是针对 benchmark 运行（主要是 Terminal-Bench）加上的，每一项都是一个环境变量：时间预算和用量日志不设置就不启用，步数上限默认为 100 步。
 
-<sub>来源: [lib.rs:1-8](../../src/lib.rs#L1-L8) · [main.rs:1-4](../../src/main.rs#L1-L4) · [shell.rs:1](../../src/shell.rs#L1) · [README.md:54-56](../../README.md#L54-L56) · [Cargo.toml:1-11](../../Cargo.toml#L1-L11) · +2</sub>
+<sub>来源: [lib.rs:1-9](../../src/lib.rs#L1-L9) · [main.rs:1-4](../../src/main.rs#L1-L4) · [shell.rs:1](../../src/shell.rs#L1) · [README.md:54-56](../../README.md#L54-L56) · [Cargo.toml:1-11](../../Cargo.toml#L1-L11) · +2</sub>
 
 ### 刻意舍弃的部分
 
@@ -25,7 +25,7 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 - **没有配置文件，也没有数据库。** 所有选项都是环境变量，由 CLI 在启动时一次读入核心的 `Config`（key 则在每次请求前读取）；RestLoop 自己只会写可选的 session 文件和最终回复文件（见 [用法与配置](#usage)）。
 - **没有沙箱，也没有确认。** 命令以你的权限在当前目录执行。隔离由调用方负责：用容器或一次性的 checkout。
 
-<sub>来源: [lib.rs:58-62](../../src/lib.rs#L58-L62) · [lib.rs:169-180](../../src/lib.rs#L169-L180) · [main.rs:73-106](../../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>来源: [lib.rs:59-63](../../src/lib.rs#L59-L63) · [lib.rs:170-181](../../src/lib.rs#L170-L181) · [main.rs:73-106](../../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ### 第一次运行
 
@@ -100,13 +100,13 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()` 而不是 CLI，所以把它当作库使用的程序也会在 stderr 上看到：命令及结果、重试、溢出提示，以及保存 session 或最终回复文件失败的错误。只有 stdin 提示符 `> ` 属于 CLI。
 
-<sub>来源: [lib.rs:48-52](../../src/lib.rs#L48-L52) · [lib.rs:80-94](../../src/lib.rs#L80-L94) · [lib.rs:121-122](../../src/lib.rs#L121-L122) · [lib.rs:129-133](../../src/lib.rs#L129-L133) · [lib.rs:396-397](../../src/lib.rs#L396-L397) · +1</sub>
+<sub>来源: [lib.rs:49-53](../../src/lib.rs#L49-L53) · [lib.rs:81-95](../../src/lib.rs#L81-L95) · [lib.rs:122-123](../../src/lib.rs#L122-L123) · [lib.rs:130-134](../../src/lib.rs#L130-L134) · [lib.rs:397-398](../../src/lib.rs#L397-L398) · +1</sub>
 
 ### 最终回复文件
 
 设置 `RESTLOOP_LAST_MESSAGE=<path>` 后，每个任务开始时先删除该文件；当模型不调用工具直接回复时，把回复文本加上末尾换行写入该文件。对于把推理内容内联在回复里的模型，开头的 `<think>` 块会被截掉，截到第一个 `</think>` 为止（没有闭合时什么都不剩）；其他回复即使引用了 `</think>` 也会完整写入。两种情况都会去掉首尾空白。删除只是尽力而为（错误会被忽略），所以提前结束的运行（步数上限、API 错误、被 kill）通常不会留下文件，而不是留下上一次的答案；需要确定性时，每次运行都传一个新路径。
 
-<sub>来源: [lib.rs:63-67](../../src/lib.rs#L63-L67) · [lib.rs:107-115](../../src/lib.rs#L107-L115) · [lib.rs:251-259](../../src/lib.rs#L251-L259) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
+<sub>来源: [lib.rs:64-68](../../src/lib.rs#L64-L68) · [lib.rs:108-116](../../src/lib.rs#L108-L116) · [lib.rs:252-260](../../src/lib.rs#L252-L260) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
 ### Session 文件：恢复与分叉
 
@@ -120,7 +120,7 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 用同一路径再次运行即可恢复；先复制文件就是分叉。保存的系统 prompt 原样复用。设置了 `RESTLOOP_DEADLINE` 时，恢复后的任务末尾会追加 `[You have Ns in total for this request; the time used in tool results counts from now.]`。每一步之后都会通过 `<path>.<pid>.tmp` 重命名来替换文件，所以进程被 kill 后，文件里保存的是最后一个完整的步骤。并发运行不会损坏文件，但最后写入的会覆盖前面的。
 
-<sub>来源: [main.rs:37-47](../../src/main.rs#L37-L47) · [main.rs:108-131](../../src/main.rs#L108-L131) · [lib.rs:153-167](../../src/lib.rs#L153-L167) · [README.md:83-100](../../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
+<sub>来源: [main.rs:37-47](../../src/main.rs#L37-L47) · [main.rs:108-131](../../src/main.rs#L108-L131) · [lib.rs:154-168](../../src/lib.rs#L154-L168) · [README.md:83-100](../../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
 
 <a id="how-it-works"></a>
 
@@ -140,7 +140,7 @@ flowchart TD
   G -->|limit reached| H["Err: stopped after N steps"]
 ```
 
-<sub>来源: [lib.rs:53-79](../../src/lib.rs#L53-L79) · [lib.rs:146-150](../../src/lib.rs#L146-L150)</sub>
+<sub>来源: [lib.rs:54-80](../../src/lib.rs#L54-L80) · [lib.rs:147-151](../../src/lib.rs#L147-L151)</sub>
 
 ### 对话里有什么
 
@@ -148,7 +148,7 @@ flowchart TD
 
 每个工具调用对应一条 `tool` 消息，带上匹配的 `tool_call_id`。参数不是带 `command` 字符串的 JSON 时，返回一条引用了原参数的错误，让模型自行纠正。
 
-<sub>来源: [lib.rs:169-180](../../src/lib.rs#L169-L180) · [lib.rs:90-106](../../src/lib.rs#L90-L106) · [lib.rs:117-120](../../src/lib.rs#L117-L120) · [lib.rs:145-146](../../src/lib.rs#L145-L146)</sub>
+<sub>来源: [lib.rs:170-181](../../src/lib.rs#L170-L181) · [lib.rs:91-107](../../src/lib.rs#L91-L107) · [lib.rs:118-121](../../src/lib.rs#L118-L121) · [lib.rs:146-147](../../src/lib.rs#L146-L147)</sub>
 
 ### 请求与重试
 
@@ -156,7 +156,7 @@ flowchart TD
 
 网络错误（包括无法读取的 body）、HTTP 429、HTTP 5xx，没有 `choices[0].message` 的 HTTP 200（MiniMax 的某些错误，`333b7b64`），以及空回复（没有工具调用，除开头的 `<think>` 块外也没有文字）都会重试：总共五次尝试，中间分别等待 2、4、8、16 s，并打印 `restloop: <what>, retrying`；第五次仍为空的回复就作为最终回复。body 中出现 `insufficient_quota` 或 `subscription_sharing_usage_limit_exceeded` 时立即失败，除非回复为空。其他状态码和第五次失败都会让任务以 `<what>: <text>` 失败（`HTTP <status>`、`request failed` 或 `no reply`），或用下文的 deadline 格式。不是 JSON 的 200 会立即以 `bad response` 失败。
 
-<sub>来源: [lib.rs:284-400](../../src/lib.rs#L284-L400) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
+<sub>来源: [lib.rs:285-401](../../src/lib.rs#L285-L401) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
 ### Responses API
 
@@ -164,7 +164,7 @@ flowchart TD
 
 `responses_reply()` 读取事件流直到 `response.completed`，构造出一条 chat 回复：文本（或拒绝内容）、工具调用、改用 chat 名称的用量，以及 `output_items`，即按 `output_index` 排序、去掉了 message 和 call id 的输出。这些项会原样发回，因此推理内容无需服务端存储也能保留。事件流中断或提前结束时会重试；流中报告的失败（`response.failed`、`response.incomplete`、`error`）只有在是 `server_error`、`rate_limit` 或 `unavailable` 时才重试。
 
-<sub>来源: [lib.rs:285-298](../../src/lib.rs#L285-L298) · [lib.rs:327-337](../../src/lib.rs#L327-L337) · [lib.rs:363-379](../../src/lib.rs#L363-L379) · [lib.rs:402-515](../../src/lib.rs#L402-L515)</sub>
+<sub>来源: [lib.rs:286-299](../../src/lib.rs#L286-L299) · [lib.rs:328-338](../../src/lib.rs#L328-L338) · [lib.rs:364-380](../../src/lib.rs#L364-L380) · [lib.rs:403-516](../../src/lib.rs#L403-L516)</sub>
 
 ### 上下文窗口满了之后的恢复
 
@@ -172,13 +172,13 @@ flowchart TD
 
 匹配成功后，`drop_old_output()` 把尚未缩短的 `tool` 消息中较早的一半（向上取整）缩成它们的第一行加上 `[output removed to fit the context window]`，用 `trim_thinking()` 清空旧的推理内容，然后重试请求。每次重试都会把剩下的再减半；没有可改动的内容时，返回该错误。命令和可见的回复都会保留，所以模型仍然知道自己做过什么。
 
-<sub>来源: [lib.rs:68-79](../../src/lib.rs#L68-L79) · [lib.rs:213-249](../../src/lib.rs#L213-L249) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
+<sub>来源: [lib.rs:69-80](../../src/lib.rs#L69-L80) · [lib.rs:214-250](../../src/lib.rs#L214-L250) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
 ### 清空旧的推理内容
 
 `trim_thinking()` 会清空除最后两条之外所有 assistant 消息的推理内容：`reasoning_content` 变为 `""`，`output_items` 中的 `reasoning` 项被删除（message 项保留其 phase），`content` 开头的 `<think>` 块被截掉。自 `70f40924` 起，这个 key 会保留并置为空值，而不是删除，因为 DeepSeek 的思考模式在工具轮次中的 assistant 消息缺少该字段时会返回 HTTP 400。已经清空过的消息不算作有改动，因此反复的溢出重试一定会终止。
 
-<sub>来源: [lib.rs:182-211](../../src/lib.rs#L182-L211) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [lib.rs:183-212](../../src/lib.rs#L183-L212) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ### 时间预算
 
@@ -191,7 +191,7 @@ flowchart TD
 
 时间从进程启动开始计算：在 stdin 模式下，同一个预算覆盖所有任务。
 
-<sub>来源: [lib.rs:172-180](../../src/lib.rs#L172-L180) · [main.rs:38-46](../../src/main.rs#L38-L46) · [lib.rs:123-128](../../src/lib.rs#L123-L128) · [lib.rs:134-139](../../src/lib.rs#L134-L139) · [lib.rs:303-319](../../src/lib.rs#L303-L319) · +3</sub>
+<sub>来源: [lib.rs:173-181](../../src/lib.rs#L173-L181) · [main.rs:38-46](../../src/main.rs#L38-L46) · [lib.rs:124-129](../../src/lib.rs#L124-L129) · [lib.rs:135-140](../../src/lib.rs#L135-L140) · [lib.rs:304-320](../../src/lib.rs#L304-L320) · +3</sub>
 
 ### 执行一条命令
 
@@ -205,7 +205,7 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 
 命令的工具结果第一行是 `exit: <status>`，后面是合并后的输出。有两种例外：参数无效时返回 `error: arguments must be JSON…`，shell 无法启动时返回 `error: <reason>`。status 是退出码；如果 shell 被信号终止则为 `killed`，超时则为 `timeout after Ns`。超过 10,000 个字符（`MAX_OUTPUT`）的输出只保留开头和结尾各 5,000 个字符，中间插入 `... [N chars truncated] ...`。无效的 UTF-8 会被替换。
 
-<sub>来源: [shell.rs:72-75](../../src/shell.rs#L72-L75) · [shell.rs:123-138](../../src/shell.rs#L123-L138) · [lib.rs:142-144](../../src/lib.rs#L142-L144)</sub>
+<sub>来源: [shell.rs:72-75](../../src/shell.rs#L72-L75) · [shell.rs:123-138](../../src/shell.rs#L123-L138) · [lib.rs:143-145](../../src/lib.rs#L143-L145)</sub>
 
 <a id="contributing"></a>
 
@@ -234,7 +234,7 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 - **保持 prompt 前缀稳定。** 任何改写早先消息的操作都会破坏服务商的 prompt 缓存；RestLoop 只在服务商报告溢出时才这样做。基于阈值的裁剪在一次 A/B 测试显示没有收益后已被移除（`f09603f4`）。
 - **核心的设置都放在 `Config`，保持两个依赖。** `src/lib.rs` 不直接读取环境变量（其 HTTP 客户端 `ureq` 会遵循 `*_PROXY`），也不启动任何进程；这些属于 CLI（`src/main.rs`）和默认的命令执行器，即公开模块 `src/shell.rs`。小巧和可读性正是意义所在。
 
-<sub>来源: [lib.rs:1-8](../../src/lib.rs#L1-L8) · [main.rs:157-160](../../src/main.rs#L157-L160) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
+<sub>来源: [lib.rs:1-9](../../src/lib.rs#L1-L9) · [main.rs:157-160](../../src/main.rs#L157-L160) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 
 ### 如何发布一个版本
 
@@ -265,7 +265,7 @@ stamp 后的 `package.json` 和 `checksums.json` 只存在于 runner 上，从�
 
 本页由 Codocia 根据代码自动生成，每次 build 重新计算：功能区划分、各区自带的说明、区之间的 import 依赖，以及讲解各区的页面。
 
-范围内共 14 个文件，2,924 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
+范围内共 14 个文件，2,925 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
 
 ### 文件结构
 
@@ -275,7 +275,7 @@ stamp 后的 `package.json` 和 `checksums.json` 只存在于 runner 上，从�
   讲解：[概览](#overview) (2), [用法与配置](#usage) (1), [构建、发布与贡献](#contributing) (1)
 - `.github/` — 198 行，2 个文件\
   讲解：[构建、发布与贡献](#contributing) (3)
-- `src/` — 2,268 行，4 个文件。RestLoop's core: the agent loop and the model client.\
+- `src/` — 2,269 行，4 个文件。RestLoop's core: the agent loop and the model client.\
   核心文件：`lib.rs` `shell.rs` `tests.rs`\
   讲解：[概览](#overview) (3), [用法与配置](#usage) (7), [工作原理](#how-it-works) (9), [构建、发布与贡献](#contributing) (3)
 

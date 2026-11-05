@@ -29,7 +29,7 @@ title: 构建、发布与贡献
 - **保持 prompt 前缀稳定。** 任何改写早先消息的操作都会破坏服务商的 prompt 缓存；RestLoop 只在服务商报告溢出时才这样做。基于阈值的裁剪在一次 A/B 测试显示没有收益后已被移除（`f09603f4`）。
 - **核心的设置都放在 `Config`，保持两个依赖。** `src/lib.rs` 不直接读取环境变量（其 HTTP 客户端 `ureq` 会遵循 `*_PROXY`），也不启动任何进程；这些属于 CLI（`src/main.rs`）和默认的命令执行器，即公开模块 `src/shell.rs`。小巧和可读性正是意义所在。
 
-<sub>来源: [lib.rs:1-8](../../src/lib.rs#L1-L8) · [main.rs:157-160](../../src/main.rs#L157-L160) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
+<sub>来源: [lib.rs:1-9](../../src/lib.rs#L1-L9) · [main.rs:157-160](../../src/main.rs#L157-L160) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 
 ## 如何发布一个版本
 

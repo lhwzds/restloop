@@ -60,13 +60,13 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 Fields the provider does not report print as `null`. These lines come from the core's `run()`, not the CLI, so a program using it as a library gets them on its stderr too: commands and results, retries, the overflow notice, and session or last-message save errors. Only the stdin prompt `> ` is the CLI's.
 
-<sub>Sources: [lib.rs:48-52](../src/lib.rs#L48-L52) · [lib.rs:80-94](../src/lib.rs#L80-L94) · [lib.rs:121-122](../src/lib.rs#L121-L122) · [lib.rs:129-133](../src/lib.rs#L129-L133) · [lib.rs:396-397](../src/lib.rs#L396-L397) · +1</sub>
+<sub>Sources: [lib.rs:49-53](../src/lib.rs#L49-L53) · [lib.rs:81-95](../src/lib.rs#L81-L95) · [lib.rs:122-123](../src/lib.rs#L122-L123) · [lib.rs:130-134](../src/lib.rs#L130-L134) · [lib.rs:397-398](../src/lib.rs#L397-L398) · +1</sub>
 
 ## The final-reply file
 
 With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, when the model replies without a tool call, writes the reply text to it with a trailing newline. For models that inline their reasoning, a leading `<think>` block is cut off up to the first `</think>` (unclosed, nothing is left); any other reply is written whole, even if it quotes `</think>`. Surrounding whitespace is trimmed either way. The delete is best-effort (errors are ignored), so a run that ends early (step limit, API error, kill) usually leaves no file rather than the previous answer; for certainty, pass a fresh path on every run.
 
-<sub>Sources: [lib.rs:63-67](../src/lib.rs#L63-L67) · [lib.rs:107-115](../src/lib.rs#L107-L115) · [lib.rs:251-259](../src/lib.rs#L251-L259) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
+<sub>Sources: [lib.rs:64-68](../src/lib.rs#L64-L68) · [lib.rs:108-116](../src/lib.rs#L108-L116) · [lib.rs:252-260](../src/lib.rs#L252-L260) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
 ## Session files: resume and fork
 
@@ -80,4 +80,4 @@ With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, wh
 
 Run again with the same path to resume; copy the file first to fork. The saved system prompt is reused unchanged. With `RESTLOOP_DEADLINE`, a resumed task gets `[You have Ns in total for this request; the time used in tool results counts from now.]` appended. The file is replaced after every step through a `<path>.<pid>.tmp` rename, so after a kill it holds the last complete step. Concurrent runs never corrupt it, but the last writer wins.
 
-<sub>Sources: [main.rs:37-47](../src/main.rs#L37-L47) · [main.rs:108-131](../src/main.rs#L108-L131) · [lib.rs:153-167](../src/lib.rs#L153-L167) · [README.md:83-100](../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
+<sub>Sources: [main.rs:37-47](../src/main.rs#L37-L47) · [main.rs:108-131](../src/main.rs#L108-L131) · [lib.rs:154-168](../src/lib.rs#L154-L168) · [README.md:83-100](../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>

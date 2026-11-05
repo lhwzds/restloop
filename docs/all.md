@@ -16,7 +16,7 @@ RestLoop is a coding agent reduced to its loop: it sends a conversation and one 
 
 It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a daemon, a runner and an executable-skills system. Commit `33511748` replaced all of that with one file and no storage, and `cad33d13` renamed the result RestLoop and restarted versioning at 0.1.0. Most later features (a configurable step limit, the time budget, usage logging) were added in response to benchmark runs, mostly Terminal-Bench, and each is an environment variable: the time budget and usage logging stay off unless set, and the step limit defaults to 100 steps.
 
-<sub>Sources: [lib.rs:1-8](../src/lib.rs#L1-L8) · [main.rs:1-4](../src/main.rs#L1-L4) · [shell.rs:1](../src/shell.rs#L1) · [README.md:54-56](../README.md#L54-L56) · [Cargo.toml:1-11](../Cargo.toml#L1-L11) · +2</sub>
+<sub>Sources: [lib.rs:1-9](../src/lib.rs#L1-L9) · [main.rs:1-4](../src/main.rs#L1-L4) · [shell.rs:1](../src/shell.rs#L1) · [README.md:54-56](../README.md#L54-L56) · [Cargo.toml:1-11](../Cargo.toml#L1-L11) · +2</sub>
 
 ### What it deliberately leaves out
 
@@ -25,7 +25,7 @@ It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a
 - **No configuration file and no database.** All options are environment variables, which the CLI reads once at start (the key before every request) into the core's `Config`; RestLoop itself writes only the optional session and last-message files (see [Usage and configuration](#usage)).
 - **No sandbox and no confirmation.** Commands run with your permissions in the current directory. Isolation is the caller's job: a container or a throwaway checkout.
 
-<sub>Sources: [lib.rs:58-62](../src/lib.rs#L58-L62) · [lib.rs:169-180](../src/lib.rs#L169-L180) · [main.rs:73-106](../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>Sources: [lib.rs:59-63](../src/lib.rs#L59-L63) · [lib.rs:170-181](../src/lib.rs#L170-L181) · [main.rs:73-106](../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ### A first result
 
@@ -100,13 +100,13 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 Fields the provider does not report print as `null`. These lines come from the core's `run()`, not the CLI, so a program using it as a library gets them on its stderr too: commands and results, retries, the overflow notice, and session or last-message save errors. Only the stdin prompt `> ` is the CLI's.
 
-<sub>Sources: [lib.rs:48-52](../src/lib.rs#L48-L52) · [lib.rs:80-94](../src/lib.rs#L80-L94) · [lib.rs:121-122](../src/lib.rs#L121-L122) · [lib.rs:129-133](../src/lib.rs#L129-L133) · [lib.rs:396-397](../src/lib.rs#L396-L397) · +1</sub>
+<sub>Sources: [lib.rs:49-53](../src/lib.rs#L49-L53) · [lib.rs:81-95](../src/lib.rs#L81-L95) · [lib.rs:122-123](../src/lib.rs#L122-L123) · [lib.rs:130-134](../src/lib.rs#L130-L134) · [lib.rs:397-398](../src/lib.rs#L397-L398) · +1</sub>
 
 ### The final-reply file
 
 With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, when the model replies without a tool call, writes the reply text to it with a trailing newline. For models that inline their reasoning, a leading `<think>` block is cut off up to the first `</think>` (unclosed, nothing is left); any other reply is written whole, even if it quotes `</think>`. Surrounding whitespace is trimmed either way. The delete is best-effort (errors are ignored), so a run that ends early (step limit, API error, kill) usually leaves no file rather than the previous answer; for certainty, pass a fresh path on every run.
 
-<sub>Sources: [lib.rs:63-67](../src/lib.rs#L63-L67) · [lib.rs:107-115](../src/lib.rs#L107-L115) · [lib.rs:251-259](../src/lib.rs#L251-L259) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
+<sub>Sources: [lib.rs:64-68](../src/lib.rs#L64-L68) · [lib.rs:108-116](../src/lib.rs#L108-L116) · [lib.rs:252-260](../src/lib.rs#L252-L260) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
 ### Session files: resume and fork
 
@@ -120,7 +120,7 @@ With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, wh
 
 Run again with the same path to resume; copy the file first to fork. The saved system prompt is reused unchanged. With `RESTLOOP_DEADLINE`, a resumed task gets `[You have Ns in total for this request; the time used in tool results counts from now.]` appended. The file is replaced after every step through a `<path>.<pid>.tmp` rename, so after a kill it holds the last complete step. Concurrent runs never corrupt it, but the last writer wins.
 
-<sub>Sources: [main.rs:37-47](../src/main.rs#L37-L47) · [main.rs:108-131](../src/main.rs#L108-L131) · [lib.rs:153-167](../src/lib.rs#L153-L167) · [README.md:83-100](../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
+<sub>Sources: [main.rs:37-47](../src/main.rs#L37-L47) · [main.rs:108-131](../src/main.rs#L108-L131) · [lib.rs:154-168](../src/lib.rs#L154-L168) · [README.md:83-100](../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
 
 <a id="how-it-works"></a>
 
@@ -140,7 +140,7 @@ flowchart TD
   G -->|limit reached| H["Err: stopped after N steps"]
 ```
 
-<sub>Sources: [lib.rs:53-79](../src/lib.rs#L53-L79) · [lib.rs:146-150](../src/lib.rs#L146-L150)</sub>
+<sub>Sources: [lib.rs:54-80](../src/lib.rs#L54-L80) · [lib.rs:147-151](../src/lib.rs#L147-L151)</sub>
 
 ### What the conversation holds
 
@@ -148,7 +148,7 @@ The system prompt from `system_prompt()` comes first: instructions plus OS, shel
 
 Each tool call gets one `tool` message with the matching `tool_call_id`. Arguments that are not JSON with a `command` string get an error quoting them, so the model can fix them.
 
-<sub>Sources: [lib.rs:169-180](../src/lib.rs#L169-L180) · [lib.rs:90-106](../src/lib.rs#L90-L106) · [lib.rs:117-120](../src/lib.rs#L117-L120) · [lib.rs:145-146](../src/lib.rs#L145-L146)</sub>
+<sub>Sources: [lib.rs:170-181](../src/lib.rs#L170-L181) · [lib.rs:91-107](../src/lib.rs#L91-L107) · [lib.rs:118-121](../src/lib.rs#L118-L121) · [lib.rs:146-147](../src/lib.rs#L146-L147)</sub>
 
 ### Requests and retries
 
@@ -156,7 +156,7 @@ Each tool call gets one `tool` message with the matching `tool_call_id`. Argumen
 
 Network errors (unreadable bodies included), HTTP 429, 5xx, a 200 without `choices[0].message` (some MiniMax errors, `333b7b64`) and an empty reply (no tool call, no text outside a leading `<think>`) are retried: five attempts, sleeping 2, 4, 8, 16 s, printing `restloop: <what>, retrying`; a fifth empty reply is the final one. A body with `insufficient_quota` or `subscription_sharing_usage_limit_exceeded` fails at once, unless the reply is empty. Other statuses, and the fifth failure, fail the task with `<what>: <text>` (`HTTP <status>`, `request failed` or `no reply`), or the deadline form below. A non-JSON 200 fails at once with `bad response`.
 
-<sub>Sources: [lib.rs:284-400](../src/lib.rs#L284-L400) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
+<sub>Sources: [lib.rs:285-401](../src/lib.rs#L285-L401) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
 ### The Responses API
 
@@ -164,7 +164,7 @@ With `RESTLOOP_WIRE_API=responses`, `complete()` posts to `/responses`. The conv
 
 `responses_reply()` reads the event stream until `response.completed` and builds a chat reply: text (or refusal), tool calls, usage under chat names, and `output_items`, the output in `output_index` order minus message and call ids. These go back verbatim, so reasoning survives without server-side storage. A stream that breaks or ends early is retried; a reported failure (`response.failed`, `response.incomplete`, `error`) only for `server_error`, `rate_limit` or `unavailable`.
 
-<sub>Sources: [lib.rs:285-298](../src/lib.rs#L285-L298) · [lib.rs:327-337](../src/lib.rs#L327-L337) · [lib.rs:363-379](../src/lib.rs#L363-L379) · [lib.rs:402-515](../src/lib.rs#L402-L515)</sub>
+<sub>Sources: [lib.rs:286-299](../src/lib.rs#L286-L299) · [lib.rs:328-338](../src/lib.rs#L328-L338) · [lib.rs:364-380](../src/lib.rs#L364-L380) · [lib.rs:403-516](../src/lib.rs#L403-L516)</sub>
 
 ### Recovering from a full context window
 
@@ -172,13 +172,13 @@ Since `21f3c1dc`, `too_long()` recognises a context overflow: an HTTP 400 or 413
 
 On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` messages not yet shortened to their first line plus `[output removed to fit the context window]`, empties old reasoning with `trim_thinking()`, and the request is retried. Each retry halves the rest; when nothing changes, the error is returned. Commands and visible replies stay, so the model knows what it did.
 
-<sub>Sources: [lib.rs:68-79](../src/lib.rs#L68-L79) · [lib.rs:213-249](../src/lib.rs#L213-L249) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
+<sub>Sources: [lib.rs:69-80](../src/lib.rs#L69-L80) · [lib.rs:214-250](../src/lib.rs#L214-L250) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
 ### Emptying old reasoning
 
 `trim_thinking()` empties the reasoning of every assistant message except the last two: `reasoning_content` becomes `""`, `reasoning` items are removed from `output_items` (message items keep their phase), and a leading `<think>` block is cut from `content`. Since `70f40924` the key is kept with an empty value rather than deleted, since DeepSeek's thinking mode rejects (HTTP 400) a tool-turn assistant message missing it. Already emptied messages do not count as changed, so retries terminate.
 
-<sub>Sources: [lib.rs:182-211](../src/lib.rs#L182-L211) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>Sources: [lib.rs:183-212](../src/lib.rs#L183-L212) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ### The time budget
 
@@ -191,7 +191,7 @@ On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` m
 
 Time counts from process start: in stdin mode one budget covers all tasks.
 
-<sub>Sources: [lib.rs:172-180](../src/lib.rs#L172-L180) · [main.rs:38-46](../src/main.rs#L38-L46) · [lib.rs:123-128](../src/lib.rs#L123-L128) · [lib.rs:134-139](../src/lib.rs#L134-L139) · [lib.rs:303-319](../src/lib.rs#L303-L319) · +3</sub>
+<sub>Sources: [lib.rs:173-181](../src/lib.rs#L173-L181) · [main.rs:38-46](../src/main.rs#L38-L46) · [lib.rs:124-129](../src/lib.rs#L124-L129) · [lib.rs:135-140](../src/lib.rs#L135-L140) · [lib.rs:304-320](../src/lib.rs#L304-L320) · +3</sub>
 
 ### Running a command
 
@@ -205,7 +205,7 @@ After the shell exits, processes holding its pipes get up to 2 s more, never pas
 
 A command's tool result is `exit: <status>` on the first line, then the combined output. Except: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Invalid UTF-8 is replaced.
 
-<sub>Sources: [shell.rs:72-75](../src/shell.rs#L72-L75) · [shell.rs:123-138](../src/shell.rs#L123-L138) · [lib.rs:142-144](../src/lib.rs#L142-L144)</sub>
+<sub>Sources: [shell.rs:72-75](../src/shell.rs#L72-L75) · [shell.rs:123-138](../src/shell.rs#L123-L138) · [lib.rs:143-145](../src/lib.rs#L143-L145)</sub>
 
 <a id="contributing"></a>
 
@@ -234,7 +234,7 @@ Conventions the history suggests:
 - **Keep the prompt prefix stable.** Anything that rewrites earlier messages breaks provider prompt caching; RestLoop does it only when the provider reports an overflow. A threshold-based trim was removed after an A/B showed no benefit (`f09603f4`).
 - **Keep the core's settings in `Config`, with two dependencies.** `src/lib.rs` makes no direct environment reads (its HTTP client, `ureq`, honours `*_PROXY`) and starts no process; that belongs to the CLI (`src/main.rs`) and the default command runner, the public module `src/shell.rs`. Its size and readability are the point.
 
-<sub>Sources: [lib.rs:1-8](../src/lib.rs#L1-L8) · [main.rs:157-160](../src/main.rs#L157-L160) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
+<sub>Sources: [lib.rs:1-9](../src/lib.rs#L1-L9) · [main.rs:157-160](../src/main.rs#L157-L160) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 
 ### How a release is made
 
@@ -265,7 +265,7 @@ The stamped `package.json` and `checksums.json` exist only on the runner and are
 
 Generated by Codocia from the code on every build: areas, each area's own description, import dependencies between areas, and the pages that explain them.
 
-In scope: 14 files, 2,924 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
+In scope: 14 files, 2,925 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
 
 ### Files
 
@@ -275,7 +275,7 @@ In scope: 14 files, 2,924 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
   Explained in: [Overview](#overview) (2), [Usage and configuration](#usage) (1), [Building, releasing and contributing](#contributing) (1)
 - `.github/` — 198 lines, 2 files\
   Explained in: [Building, releasing and contributing](#contributing) (3)
-- `src/` — 2,268 lines, 4 files. RestLoop's core: the agent loop and the model client.\
+- `src/` — 2,269 lines, 4 files. RestLoop's core: the agent loop and the model client.\
   Hub files: `lib.rs` `shell.rs` `tests.rs`\
   Explained in: [Overview](#overview) (3), [Usage and configuration](#usage) (7), [How it works](#how-it-works) (9), [Building, releasing and contributing](#contributing) (3)
 

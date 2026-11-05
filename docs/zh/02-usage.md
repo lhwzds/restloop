@@ -60,13 +60,13 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()` 而不是 CLI，所以把它当作库使用的程序也会在 stderr 上看到：命令及结果、重试、溢出提示，以及保存 session 或最终回复文件失败的错误。只有 stdin 提示符 `> ` 属于 CLI。
 
-<sub>来源: [lib.rs:48-52](../../src/lib.rs#L48-L52) · [lib.rs:80-94](../../src/lib.rs#L80-L94) · [lib.rs:121-122](../../src/lib.rs#L121-L122) · [lib.rs:129-133](../../src/lib.rs#L129-L133) · [lib.rs:396-397](../../src/lib.rs#L396-L397) · +1</sub>
+<sub>来源: [lib.rs:49-53](../../src/lib.rs#L49-L53) · [lib.rs:81-95](../../src/lib.rs#L81-L95) · [lib.rs:122-123](../../src/lib.rs#L122-L123) · [lib.rs:130-134](../../src/lib.rs#L130-L134) · [lib.rs:397-398](../../src/lib.rs#L397-L398) · +1</sub>
 
 ## 最终回复文件
 
 设置 `RESTLOOP_LAST_MESSAGE=<path>` 后，每个任务开始时先删除该文件；当模型不调用工具直接回复时，把回复文本加上末尾换行写入该文件。对于把推理内容内联在回复里的模型，开头的 `<think>` 块会被截掉，截到第一个 `</think>` 为止（没有闭合时什么都不剩）；其他回复即使引用了 `</think>` 也会完整写入。两种情况都会去掉首尾空白。删除只是尽力而为（错误会被忽略），所以提前结束的运行（步数上限、API 错误、被 kill）通常不会留下文件，而不是留下上一次的答案；需要确定性时，每次运行都传一个新路径。
 
-<sub>来源: [lib.rs:63-67](../../src/lib.rs#L63-L67) · [lib.rs:107-115](../../src/lib.rs#L107-L115) · [lib.rs:251-259](../../src/lib.rs#L251-L259) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
+<sub>来源: [lib.rs:64-68](../../src/lib.rs#L64-L68) · [lib.rs:108-116](../../src/lib.rs#L108-L116) · [lib.rs:252-260](../../src/lib.rs#L252-L260) · [commit e8312d19](https://github.com/lhwzds/restloop/commit/e8312d19)</sub>
 
 ## Session 文件：恢复与分叉
 
@@ -80,4 +80,4 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 用同一路径再次运行即可恢复；先复制文件就是分叉。保存的系统 prompt 原样复用。设置了 `RESTLOOP_DEADLINE` 时，恢复后的任务末尾会追加 `[You have Ns in total for this request; the time used in tool results counts from now.]`。每一步之后都会通过 `<path>.<pid>.tmp` 重命名来替换文件，所以进程被 kill 后，文件里保存的是最后一个完整的步骤。并发运行不会损坏文件，但最后写入的会覆盖前面的。
 
-<sub>来源: [main.rs:37-47](../../src/main.rs#L37-L47) · [main.rs:108-131](../../src/main.rs#L108-L131) · [lib.rs:153-167](../../src/lib.rs#L153-L167) · [README.md:83-100](../../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
+<sub>来源: [main.rs:37-47](../../src/main.rs#L37-L47) · [main.rs:108-131](../../src/main.rs#L108-L131) · [lib.rs:154-168](../../src/lib.rs#L154-L168) · [README.md:83-100](../../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>

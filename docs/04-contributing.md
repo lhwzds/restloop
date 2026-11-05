@@ -29,7 +29,7 @@ Conventions the history suggests:
 - **Keep the prompt prefix stable.** Anything that rewrites earlier messages breaks provider prompt caching; RestLoop does it only when the provider reports an overflow. A threshold-based trim was removed after an A/B showed no benefit (`f09603f4`).
 - **Keep the core's settings in `Config`, with two dependencies.** `src/lib.rs` makes no direct environment reads (its HTTP client, `ureq`, honours `*_PROXY`) and starts no process; that belongs to the CLI (`src/main.rs`) and the default command runner, the public module `src/shell.rs`. Its size and readability are the point.
 
-<sub>Sources: [lib.rs:1-8](../src/lib.rs#L1-L8) · [main.rs:157-160](../src/main.rs#L157-L160) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
+<sub>Sources: [lib.rs:1-9](../src/lib.rs#L1-L9) · [main.rs:157-160](../src/main.rs#L157-L160) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 
 ## How a release is made
 

@@ -10,7 +10,7 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 
 它的前身 RestFlow（到 0.5 为止）已经膨胀成一个 TUI、一个 daemon、一个 runner 加一套可执行 skill 系统，RestLoop 正是为此而生。commit `33511748` 把这些全部替换成一个文件、不做任何存储，`cad33d13` 将其改名为 RestLoop，版本号从 0.1.0 重新开始。之后的大多数功能（可配置的步数上限、时间预算、用量日志）都是针对 benchmark 运行（主要是 Terminal-Bench）加上的，每一项都是一个环境变量：时间预算和用量日志不设置就不启用，步数上限默认为 100 步。
 
-<sub>来源: [lib.rs:1-8](../../src/lib.rs#L1-L8) · [main.rs:1-4](../../src/main.rs#L1-L4) · [shell.rs:1](../../src/shell.rs#L1) · [README.md:54-56](../../README.md#L54-L56) · [Cargo.toml:1-11](../../Cargo.toml#L1-L11) · +2</sub>
+<sub>来源: [lib.rs:1-9](../../src/lib.rs#L1-L9) · [main.rs:1-4](../../src/main.rs#L1-L4) · [shell.rs:1](../../src/shell.rs#L1) · [README.md:54-56](../../README.md#L54-L56) · [Cargo.toml:1-11](../../Cargo.toml#L1-L11) · +2</sub>
 
 ## 刻意舍弃的部分
 
@@ -19,7 +19,7 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 - **没有配置文件，也没有数据库。** 所有选项都是环境变量，由 CLI 在启动时一次读入核心的 `Config`（key 则在每次请求前读取）；RestLoop 自己只会写可选的 session 文件和最终回复文件（见 [用法与配置](02-usage.md)）。
 - **没有沙箱，也没有确认。** 命令以你的权限在当前目录执行。隔离由调用方负责：用容器或一次性的 checkout。
 
-<sub>来源: [lib.rs:58-62](../../src/lib.rs#L58-L62) · [lib.rs:169-180](../../src/lib.rs#L169-L180) · [main.rs:73-106](../../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>来源: [lib.rs:59-63](../../src/lib.rs#L59-L63) · [lib.rs:170-181](../../src/lib.rs#L170-L181) · [main.rs:73-106](../../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ## 第一次运行
 

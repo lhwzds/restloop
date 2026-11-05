@@ -20,7 +20,7 @@ flowchart TD
   G -->|limit reached| H["Err: stopped after N steps"]
 ```
 
-<sub>来源: [lib.rs:53-79](../../src/lib.rs#L53-L79) · [lib.rs:146-150](../../src/lib.rs#L146-L150)</sub>
+<sub>来源: [lib.rs:54-80](../../src/lib.rs#L54-L80) · [lib.rs:147-151](../../src/lib.rs#L147-L151)</sub>
 
 ## 对话里有什么
 
@@ -28,7 +28,7 @@ flowchart TD
 
 每个工具调用对应一条 `tool` 消息，带上匹配的 `tool_call_id`。参数不是带 `command` 字符串的 JSON 时，返回一条引用了原参数的错误，让模型自行纠正。
 
-<sub>来源: [lib.rs:169-180](../../src/lib.rs#L169-L180) · [lib.rs:90-106](../../src/lib.rs#L90-L106) · [lib.rs:117-120](../../src/lib.rs#L117-L120) · [lib.rs:145-146](../../src/lib.rs#L145-L146)</sub>
+<sub>来源: [lib.rs:170-181](../../src/lib.rs#L170-L181) · [lib.rs:91-107](../../src/lib.rs#L91-L107) · [lib.rs:118-121](../../src/lib.rs#L118-L121) · [lib.rs:146-147](../../src/lib.rs#L146-L147)</sub>
 
 ## 请求与重试
 
@@ -36,7 +36,7 @@ flowchart TD
 
 网络错误（包括无法读取的 body）、HTTP 429、HTTP 5xx，没有 `choices[0].message` 的 HTTP 200（MiniMax 的某些错误，`333b7b64`），以及空回复（没有工具调用，除开头的 `<think>` 块外也没有文字）都会重试：总共五次尝试，中间分别等待 2、4、8、16 s，并打印 `restloop: <what>, retrying`；第五次仍为空的回复就作为最终回复。body 中出现 `insufficient_quota` 或 `subscription_sharing_usage_limit_exceeded` 时立即失败，除非回复为空。其他状态码和第五次失败都会让任务以 `<what>: <text>` 失败（`HTTP <status>`、`request failed` 或 `no reply`），或用下文的 deadline 格式。不是 JSON 的 200 会立即以 `bad response` 失败。
 
-<sub>来源: [lib.rs:284-400](../../src/lib.rs#L284-L400) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
+<sub>来源: [lib.rs:285-401](../../src/lib.rs#L285-L401) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
 ## Responses API
 
@@ -44,7 +44,7 @@ flowchart TD
 
 `responses_reply()` 读取事件流直到 `response.completed`，构造出一条 chat 回复：文本（或拒绝内容）、工具调用、改用 chat 名称的用量，以及 `output_items`，即按 `output_index` 排序、去掉了 message 和 call id 的输出。这些项会原样发回，因此推理内容无需服务端存储也能保留。事件流中断或提前结束时会重试；流中报告的失败（`response.failed`、`response.incomplete`、`error`）只有在是 `server_error`、`rate_limit` 或 `unavailable` 时才重试。
 
-<sub>来源: [lib.rs:285-298](../../src/lib.rs#L285-L298) · [lib.rs:327-337](../../src/lib.rs#L327-L337) · [lib.rs:363-379](../../src/lib.rs#L363-L379) · [lib.rs:402-515](../../src/lib.rs#L402-L515)</sub>
+<sub>来源: [lib.rs:286-299](../../src/lib.rs#L286-L299) · [lib.rs:328-338](../../src/lib.rs#L328-L338) · [lib.rs:364-380](../../src/lib.rs#L364-L380) · [lib.rs:403-516](../../src/lib.rs#L403-L516)</sub>
 
 ## 上下文窗口满了之后的恢复
 
@@ -52,13 +52,13 @@ flowchart TD
 
 匹配成功后，`drop_old_output()` 把尚未缩短的 `tool` 消息中较早的一半（向上取整）缩成它们的第一行加上 `[output removed to fit the context window]`，用 `trim_thinking()` 清空旧的推理内容，然后重试请求。每次重试都会把剩下的再减半；没有可改动的内容时，返回该错误。命令和可见的回复都会保留，所以模型仍然知道自己做过什么。
 
-<sub>来源: [lib.rs:68-79](../../src/lib.rs#L68-L79) · [lib.rs:213-249](../../src/lib.rs#L213-L249) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
+<sub>来源: [lib.rs:69-80](../../src/lib.rs#L69-L80) · [lib.rs:214-250](../../src/lib.rs#L214-L250) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
 ## 清空旧的推理内容
 
 `trim_thinking()` 会清空除最后两条之外所有 assistant 消息的推理内容：`reasoning_content` 变为 `""`，`output_items` 中的 `reasoning` 项被删除（message 项保留其 phase），`content` 开头的 `<think>` 块被截掉。自 `70f40924` 起，这个 key 会保留并置为空值，而不是删除，因为 DeepSeek 的思考模式在工具轮次中的 assistant 消息缺少该字段时会返回 HTTP 400。已经清空过的消息不算作有改动，因此反复的溢出重试一定会终止。
 
-<sub>来源: [lib.rs:182-211](../../src/lib.rs#L182-L211) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [lib.rs:183-212](../../src/lib.rs#L183-L212) · [commit 70f40924](https://github.com/lhwzds/restloop/commit/70f40924) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ## 时间预算
 
@@ -71,7 +71,7 @@ flowchart TD
 
 时间从进程启动开始计算：在 stdin 模式下，同一个预算覆盖所有任务。
 
-<sub>来源: [lib.rs:172-180](../../src/lib.rs#L172-L180) · [main.rs:38-46](../../src/main.rs#L38-L46) · [lib.rs:123-128](../../src/lib.rs#L123-L128) · [lib.rs:134-139](../../src/lib.rs#L134-L139) · [lib.rs:303-319](../../src/lib.rs#L303-L319) · +3</sub>
+<sub>来源: [lib.rs:173-181](../../src/lib.rs#L173-L181) · [main.rs:38-46](../../src/main.rs#L38-L46) · [lib.rs:124-129](../../src/lib.rs#L124-L129) · [lib.rs:135-140](../../src/lib.rs#L135-L140) · [lib.rs:304-320](../../src/lib.rs#L304-L320) · +3</sub>
 
 ## 执行一条命令
 
@@ -85,4 +85,4 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 
 命令的工具结果第一行是 `exit: <status>`，后面是合并后的输出。有两种例外：参数无效时返回 `error: arguments must be JSON…`，shell 无法启动时返回 `error: <reason>`。status 是退出码；如果 shell 被信号终止则为 `killed`，超时则为 `timeout after Ns`。超过 10,000 个字符（`MAX_OUTPUT`）的输出只保留开头和结尾各 5,000 个字符，中间插入 `... [N chars truncated] ...`。无效的 UTF-8 会被替换。
 
-<sub>来源: [shell.rs:72-75](../../src/shell.rs#L72-L75) · [shell.rs:123-138](../../src/shell.rs#L123-L138) · [lib.rs:142-144](../../src/lib.rs#L142-L144)</sub>
+<sub>来源: [shell.rs:72-75](../../src/shell.rs#L72-L75) · [shell.rs:123-138](../../src/shell.rs#L123-L138) · [lib.rs:143-145](../../src/lib.rs#L143-L145)</sub>

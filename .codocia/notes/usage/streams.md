@@ -2,11 +2,11 @@
 title: What goes to stdout and stderr
 order: 30
 evidence:
-  - src/lib.rs:48-52 #42989d73814e
-  - src/lib.rs:80-94 #fbc16d527075
-  - src/lib.rs:121-122 #517656552f29
-  - src/lib.rs:129-133 #ef2b850ba233
-  - src/lib.rs:396-397 #ef5644d396bb
+  - src/lib.rs:49-53 #42989d73814e
+  - src/lib.rs:81-95 #fbc16d527075
+  - src/lib.rs:122-123 #517656552f29
+  - src/lib.rs:130-134 #ef2b850ba233
+  - src/lib.rs:397-398 #ef5644d396bb
   - src/main.rs:60-64 #9627391266f6
 ---
 

@@ -10,7 +10,7 @@ RestLoop is a coding agent reduced to its loop: it sends a conversation and one 
 
 It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a daemon, a runner and an executable-skills system. Commit `33511748` replaced all of that with one file and no storage, and `cad33d13` renamed the result RestLoop and restarted versioning at 0.1.0. Most later features (a configurable step limit, the time budget, usage logging) were added in response to benchmark runs, mostly Terminal-Bench, and each is an environment variable: the time budget and usage logging stay off unless set, and the step limit defaults to 100 steps.
 
-<sub>Sources: [lib.rs:1-8](../src/lib.rs#L1-L8) · [main.rs:1-4](../src/main.rs#L1-L4) · [shell.rs:1](../src/shell.rs#L1) · [README.md:54-56](../README.md#L54-L56) · [Cargo.toml:1-11](../Cargo.toml#L1-L11) · +2</sub>
+<sub>Sources: [lib.rs:1-9](../src/lib.rs#L1-L9) · [main.rs:1-4](../src/main.rs#L1-L4) · [shell.rs:1](../src/shell.rs#L1) · [README.md:54-56](../README.md#L54-L56) · [Cargo.toml:1-11](../Cargo.toml#L1-L11) · +2</sub>
 
 ## What it deliberately leaves out
 
@@ -19,7 +19,7 @@ It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a
 - **No configuration file and no database.** All options are environment variables, which the CLI reads once at start (the key before every request) into the core's `Config`; RestLoop itself writes only the optional session and last-message files (see [Usage and configuration](02-usage.md)).
 - **No sandbox and no confirmation.** Commands run with your permissions in the current directory. Isolation is the caller's job: a container or a throwaway checkout.
 
-<sub>Sources: [lib.rs:58-62](../src/lib.rs#L58-L62) · [lib.rs:169-180](../src/lib.rs#L169-L180) · [main.rs:73-106](../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>Sources: [lib.rs:59-63](../src/lib.rs#L59-L63) · [lib.rs:170-181](../src/lib.rs#L170-L181) · [main.rs:73-106](../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ## A first result
 
