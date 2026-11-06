@@ -58,9 +58,9 @@ stderr carries everything else: each command as a dimmed `$ <command>`, then its
 usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapsed=41s
 ```
 
-Fields the provider does not report print as `null`. These lines come from the core's `run()`, not the CLI, so a program using it as a library gets them on its stderr too: commands and results, retries, the overflow notice, and session or last-message save errors. Only the stdin prompt `> ` is the CLI's.
+Fields the provider does not report print as `null`. These lines come from the core's `run()`, not the CLI, so a program using it as a library gets them on its stderr too: commands and results, retries, the overflow notice, and session or last-message save errors. Only the stdin prompt `> ` is the CLI's. The default runner adds `restloop: cannot stop a process group` when a SIGKILL fails on a group that is still there.
 
-<sub>Sources: [lib.rs:49-53](../src/lib.rs#L49-L53) · [lib.rs:81-95](../src/lib.rs#L81-L95) · [lib.rs:122-123](../src/lib.rs#L122-L123) · [lib.rs:130-134](../src/lib.rs#L130-L134) · [lib.rs:397-398](../src/lib.rs#L397-L398) · +1</sub>
+<sub>Sources: [shell.rs:270-277](../src/shell.rs#L270-L277) · [lib.rs:49-53](../src/lib.rs#L49-L53) · [lib.rs:81-95](../src/lib.rs#L81-L95) · [lib.rs:122-123](../src/lib.rs#L122-L123) · [lib.rs:130-134](../src/lib.rs#L130-L134) · +2</sub>
 
 ## The final-reply file
 

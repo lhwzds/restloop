@@ -23,19 +23,22 @@ It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a
 
 ## What a run leaves behind
 
-Nothing a task's commands started should outlive it. When a task ends (in stdin mode, each one), and on SIGHUP, SIGINT or SIGTERM (RestLoop then exits with 129, 130 or 143), every process group its commands started gets SIGTERM and, after about a second, SIGKILL; the task's deadline cuts that wait short. On Windows the job object is closed, which kills its processes with no graceful phase. A background server keeps running between the steps of one task.
-
-The limits:
-
-- A process that calls `setsid` or daemonizes escapes; use a container or a cgroup.
-- On Unix at most 32 groups may live at once; the next command gets an error instead of running.
-- Output past 1 MiB per command is dropped.
-- Inherited file descriptors are closed for commands; when `/dev/fd` cannot be read, only those up to 1023.
-- A process group id reused within one process is a known small gap.
+Nothing a task's commands started should outlive it. When a task ends (in stdin mode, each one), and on a handled signal, every process group its commands started gets SIGTERM and, after about a second, SIGKILL if the group remains; the task's deadline cuts that wait short. On Unix the handled signals are SIGHUP, SIGINT and SIGTERM, unless inherited as ignored (`nohup`), and RestLoop then exits with 129, 130 or 143. On Windows the job object is closed, which kills its processes with no graceful phase. A background server keeps running between the steps of one task.
 
 This is CLI setup: a library caller of `shell::shell()` calls `shell::install()` and `shell::stop_all()` itself.
 
-<sub>Sources: [main.rs:30-34](../src/main.rs#L30-L34) · [main.rs:56-57](../src/main.rs#L56-L57) · [shell.rs:56-75](../src/shell.rs#L56-L75) · [shell.rs:229-232](../src/shell.rs#L229-L232) · [shell.rs:354-360](../src/shell.rs#L354-L360) · +2</sub>
+<sub>Sources: [main.rs:30-34](../src/main.rs#L30-L34) · [main.rs:56-57](../src/main.rs#L56-L57) · [shell.rs:56-75](../src/shell.rs#L56-L75) · [shell.rs:279-311](../src/shell.rs#L279-L311) · [shell.rs:396-421](../src/shell.rs#L396-L421) · +1</sub>
+
+## The limits of that cleanup
+
+- On Unix, a process that calls `setsid` or daemonizes escapes; use a container or a cgroup.
+- On Unix at most 32 groups may live at once; the next command gets an error instead of running.
+- Output past 1 MiB per command is dropped.
+- Inherited file descriptors are marked close-on-exec, and a failure to mark one is ignored; when `/dev/fd` cannot be read, only those up to 1023 are marked.
+- A process group id reused within one process is a known small gap.
+- With an npm install, a SIGTERM sent only to the launcher (`npm/bin/restloop.js`) kills node and leaves RestLoop and its commands running.
+
+<sub>Sources: [shell.rs:229-232](../src/shell.rs#L229-L232) · [shell.rs:354-360](../src/shell.rs#L354-L360) · [shell.rs:423-437](../src/shell.rs#L423-L437) · [restloop.js:56-58](../npm/bin/restloop.js#L56-L58)</sub>
 
 ## A first result
 

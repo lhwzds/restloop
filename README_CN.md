@@ -100,23 +100,24 @@ assistant 的文本输出到 stdout；命令及其输出写入 stderr。
 2. 执行每条请求的命令：不提供 stdin，在当前目录下的全新 shell 中运行。
    macOS/Linux 上用 `sh`；Windows 上安装了 Git Bash 就用它，
    否则用 PowerShell。命令运行 120 s 后，它的进程组（Windows 上是 job）会被 kill
-   （可用 `RESTLOOP_TIMEOUT` 修改，例如用于耗时较长的构建）；已脱离进程组的
+   （可用 `RESTLOOP_TIMEOUT` 修改，例如用于耗时较长的构建）；在 Unix 上，已脱离进程组的
    子进程不会被 kill。把退出码和输出
    （截断到 10,000 个字符）发回给模型。
 3. 重复以上步骤，直到模型不调用工具直接回复，或达到 100 步
    （`RESTLOOP_MAX_STEPS`）。
 
-一次运行结束时（stdin 模式下是每个任务结束时），以及收到 SIGHUP、SIGINT 或 SIGTERM 时（RestLoop 随后以
-129、130 或 143 退出），它的命令启动的每个进程组都会先收到 SIGTERM，大约一秒后收到
-SIGKILL；任务的 deadline 会缩短这段等待。在 Windows 上则关闭 job object，这会 kill
+一次运行结束时（stdin 模式下是每个任务结束时），以及处理到 SIGHUP、SIGINT 或 SIGTERM 时（仅 Unix；继承来的忽略设置保持不变，RestLoop 随后以
+129、130 或 143 退出），它的命令启动的每个进程组都会先收到 SIGTERM，大约一秒后，如果进程组
+还在，再收到 SIGKILL；任务的 deadline 会缩短这段等待。在 Windows 上则关闭 job object，这会 kill
 其中的进程，没有优雅退出阶段。命令在后台启动的服务器，在同一次运行的各步之间会继续运行。
 
 限制：
-- 调用 setsid 或变成 daemon 的进程会逃脱（请用容器或 cgroup）；
+- 在 Unix 上，调用 setsid 或变成 daemon 的进程会逃脱（请用容器或 cgroup）；
 - 在 Unix 上，同时最多存在 32 个进程组，再下一条命令会被拒绝；
 - 每条命令超过 1 MiB 的输出会被丢弃；
-- 无法读取 `/dev/fd` 时，只关闭编号不超过 1023 的文件描述符；
-- 同一进程内进程组 id 被复用，是一个已知的小缺口。
+- 无法读取 `/dev/fd` 时，只把编号不超过 1023 的文件描述符标记为 close-on-exec（标记失败会被忽略）；
+- 同一进程内进程组 id 被复用，是一个已知的小缺口；
+- 通过 npm 安装时，只发给启动器（`npm/bin/restloop.js`）的 SIGTERM 会杀掉 node，而 RestLoop 和它的命令会继续运行。
 
 因 429、5xx、网络错误或没有回复的 HTTP 200 而失败的请求，
 总共最多尝试 5 次，除非错误表明额度或套餐限额已经用完。

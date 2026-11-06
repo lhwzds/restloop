@@ -29,19 +29,22 @@ It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a
 
 ### What a run leaves behind
 
-Nothing a task's commands started should outlive it. When a task ends (in stdin mode, each one), and on SIGHUP, SIGINT or SIGTERM (RestLoop then exits with 129, 130 or 143), every process group its commands started gets SIGTERM and, after about a second, SIGKILL; the task's deadline cuts that wait short. On Windows the job object is closed, which kills its processes with no graceful phase. A background server keeps running between the steps of one task.
-
-The limits:
-
-- A process that calls `setsid` or daemonizes escapes; use a container or a cgroup.
-- On Unix at most 32 groups may live at once; the next command gets an error instead of running.
-- Output past 1 MiB per command is dropped.
-- Inherited file descriptors are closed for commands; when `/dev/fd` cannot be read, only those up to 1023.
-- A process group id reused within one process is a known small gap.
+Nothing a task's commands started should outlive it. When a task ends (in stdin mode, each one), and on a handled signal, every process group its commands started gets SIGTERM and, after about a second, SIGKILL if the group remains; the task's deadline cuts that wait short. On Unix the handled signals are SIGHUP, SIGINT and SIGTERM, unless inherited as ignored (`nohup`), and RestLoop then exits with 129, 130 or 143. On Windows the job object is closed, which kills its processes with no graceful phase. A background server keeps running between the steps of one task.
 
 This is CLI setup: a library caller of `shell::shell()` calls `shell::install()` and `shell::stop_all()` itself.
 
-<sub>Sources: [main.rs:30-34](../src/main.rs#L30-L34) · [main.rs:56-57](../src/main.rs#L56-L57) · [shell.rs:56-75](../src/shell.rs#L56-L75) · [shell.rs:229-232](../src/shell.rs#L229-L232) · [shell.rs:354-360](../src/shell.rs#L354-L360) · +2</sub>
+<sub>Sources: [main.rs:30-34](../src/main.rs#L30-L34) · [main.rs:56-57](../src/main.rs#L56-L57) · [shell.rs:56-75](../src/shell.rs#L56-L75) · [shell.rs:279-311](../src/shell.rs#L279-L311) · [shell.rs:396-421](../src/shell.rs#L396-L421) · +1</sub>
+
+### The limits of that cleanup
+
+- On Unix, a process that calls `setsid` or daemonizes escapes; use a container or a cgroup.
+- On Unix at most 32 groups may live at once; the next command gets an error instead of running.
+- Output past 1 MiB per command is dropped.
+- Inherited file descriptors are marked close-on-exec, and a failure to mark one is ignored; when `/dev/fd` cannot be read, only those up to 1023 are marked.
+- A process group id reused within one process is a known small gap.
+- With an npm install, a SIGTERM sent only to the launcher (`npm/bin/restloop.js`) kills node and leaves RestLoop and its commands running.
+
+<sub>Sources: [shell.rs:229-232](../src/shell.rs#L229-L232) · [shell.rs:354-360](../src/shell.rs#L354-L360) · [shell.rs:423-437](../src/shell.rs#L423-L437) · [restloop.js:56-58](../npm/bin/restloop.js#L56-L58)</sub>
 
 ### A first result
 
@@ -114,9 +117,9 @@ stderr carries everything else: each command as a dimmed `$ <command>`, then its
 usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapsed=41s
 ```
 
-Fields the provider does not report print as `null`. These lines come from the core's `run()`, not the CLI, so a program using it as a library gets them on its stderr too: commands and results, retries, the overflow notice, and session or last-message save errors. Only the stdin prompt `> ` is the CLI's.
+Fields the provider does not report print as `null`. These lines come from the core's `run()`, not the CLI, so a program using it as a library gets them on its stderr too: commands and results, retries, the overflow notice, and session or last-message save errors. Only the stdin prompt `> ` is the CLI's. The default runner adds `restloop: cannot stop a process group` when a SIGKILL fails on a group that is still there.
 
-<sub>Sources: [lib.rs:49-53](../src/lib.rs#L49-L53) · [lib.rs:81-95](../src/lib.rs#L81-L95) · [lib.rs:122-123](../src/lib.rs#L122-L123) · [lib.rs:130-134](../src/lib.rs#L130-L134) · [lib.rs:397-398](../src/lib.rs#L397-L398) · +1</sub>
+<sub>Sources: [shell.rs:270-277](../src/shell.rs#L270-L277) · [lib.rs:49-53](../src/lib.rs#L49-L53) · [lib.rs:81-95](../src/lib.rs#L81-L95) · [lib.rs:122-123](../src/lib.rs#L122-L123) · [lib.rs:130-134](../src/lib.rs#L130-L134) · +2</sub>
 
 ### The final-reply file
 
@@ -162,7 +165,7 @@ flowchart TD
 
 The system prompt from `system_prompt()` comes first: instructions plus OS, shell, working directory, command timeout and, with a deadline, the budget. Then come user tasks and, per model reply, an assistant message keeping only `content`, `tool_calls` and, when present, `reasoning_content` and the Responses API's `output_items`.
 
-Each tool call gets one `tool` message with the matching `tool_call_id`. Arguments that are not JSON with a `command` string get an error quoting them, so the model can fix them.
+Each tool call gets one `tool` message with the matching `tool_call_id`.
 
 <sub>Sources: [lib.rs:170-181](../src/lib.rs#L170-L181) · [lib.rs:91-107](../src/lib.rs#L91-L107) · [lib.rs:118-121](../src/lib.rs#L118-L121) · [lib.rs:146-147](../src/lib.rs#L146-L147)</sub>
 
@@ -170,7 +173,7 @@ Each tool call gets one `tool` message with the matching `tool_call_id`. Argumen
 
 `complete()` posts `{"model", "messages", "tools"}` to `/chat/completions`, plus `reasoning_effort` if set, without sampling parameters, token limit or streaming. The key is reread per attempt ([Usage and configuration](#usage)); an unreadable key file fails with `cannot read <path>`.
 
-Network errors (unreadable bodies included), HTTP 429, 5xx, a 200 without `choices[0].message` (some MiniMax errors, `333b7b64`) and an empty reply (no tool call, no text outside a leading `<think>`) are retried: five attempts, sleeping 2, 4, 8, 16 s, printing `restloop: <what>, retrying`; a fifth empty reply is the final one. A body with `insufficient_quota` or `subscription_sharing_usage_limit_exceeded` fails at once, unless the reply is empty. Other statuses, and the fifth failure, fail the task with `<what>: <text>` (`HTTP <status>`, `request failed` or `no reply`), or the deadline form below. A non-JSON 200 fails at once with `bad response`.
+Network errors, HTTP 429, 5xx, a 200 without `choices[0].message` (some MiniMax errors, `333b7b64`) and an empty reply (no tool call, no text outside a leading `<think>`) are retried: five attempts, sleeping 2, 4, 8, 16 s, printing `restloop: <what>, retrying`; a fifth empty reply is the final one. A body with `insufficient_quota` or `subscription_sharing_usage_limit_exceeded` fails at once, unless the reply is empty. Other statuses, and the fifth failure, fail the task with `<what>: <text>` (`HTTP <status>`, `request failed` or `no reply`), or the deadline form below. A non-JSON 200 fails at once with `bad response`.
 
 <sub>Sources: [lib.rs:285-401](../src/lib.rs#L285-L401) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
@@ -211,7 +214,7 @@ Time counts from process start: in stdin mode one budget covers all tasks.
 
 ### Running a command
 
-`run()` takes the runner as a callback; the CLI passes the public `shell::shell()`, which runs each command in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash; PowerShell 5.1 adds a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0`, so nothing waits for input; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
+`run()` takes the runner as a callback; the CLI passes the public `shell::shell()`, which runs each command in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash; PowerShell 5.1 adds a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0`; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
 
 After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is stopped, and `exit:` still reports the shell's code. On Unix a stop is SIGTERM, up to 1 s, then SIGKILL; Windows uses `TerminateJobObject`. A background service that redirects its output (`server > log 2>&1 &`) lives until the task ends: [Overview](#overview). Inherited variables: [Usage and configuration](#usage).
 
@@ -219,9 +222,9 @@ After the shell exits, processes holding its pipes get up to 2 s more, never pas
 
 ### What the model sees from a command
 
-A command's tool result is `exit: <status>` on the first line, then the combined output. Except: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Output past 1 MiB is dropped first. Invalid UTF-8 is replaced.
+A command's tool result is `exit: <status>` on the first line, then the combined output. Except: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, `exited, status unknown` when the child is gone without one, or `timeout after Ns`; a stopped command not seen to exit adds `(child did not exit after SIGKILL)`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Output past 1 MiB is dropped first. Invalid UTF-8 is replaced.
 
-<sub>Sources: [shell.rs:14-16](../src/shell.rs#L14-L16) · [shell.rs:136-139](../src/shell.rs#L136-L139) · [shell.rs:199-219](../src/shell.rs#L199-L219) · [lib.rs:143-145](../src/lib.rs#L143-L145)</sub>
+<sub>Sources: [shell.rs:171-176](../src/shell.rs#L171-L176) · [shell.rs:184-189](../src/shell.rs#L184-L189) · [shell.rs:14-16](../src/shell.rs#L14-L16) · [shell.rs:136-139](../src/shell.rs#L136-L139) · [shell.rs:199-219](../src/shell.rs#L199-L219) · +1</sub>
 
 <a id="contributing"></a>
 
@@ -281,19 +284,19 @@ The stamped `package.json` and `checksums.json` exist only on the runner and are
 
 Generated by Codocia from the code on every build: areas, each area's own description, import dependencies between areas, and the pages that explain them.
 
-In scope: 15 files, 3,909 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
+In scope: 15 files, 3,913 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
 
 ### Files
 
 **Repository root**
 
-- (root files) — 326 lines, 3 files. A minimal agent loop: one model, one shell tool.\
+- (root files) — 330 lines, 3 files. A minimal agent loop: one model, one shell tool.\
   Explained in: [Overview](#overview) (2), [Usage and configuration](#usage) (1), [Building, releasing and contributing](#contributing) (1)
 - `.github/` — 201 lines, 2 files\
   Explained in: [Building, releasing and contributing](#contributing) (3)
 - `src/` — 2,663 lines, 4 files. RestLoop's core: the agent loop and the model client.\
   Hub files: `shell.rs` `lib.rs` `tests.rs`\
-  Explained in: [Overview](#overview) (4), [Usage and configuration](#usage) (7), [How it works](#how-it-works) (9), [Building, releasing and contributing](#contributing) (3)
+  Explained in: [Overview](#overview) (5), [Usage and configuration](#usage) (7), [How it works](#how-it-works) (9), [Building, releasing and contributing](#contributing) (3)
 - `tests/` — 557 lines, 1 file\
   Explained in: [Building, releasing and contributing](#contributing) (1)
 
@@ -304,7 +307,7 @@ In scope: 15 files, 3,909 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
   Explained in: [Building, releasing and contributing](#contributing) (1)
 - `bin/` — 61 lines, 1 file\
   Hub files: `restloop.js`\
-  Explained in: [Building, releasing and contributing](#contributing) (1)
+  Explained in: [Overview](#overview) (1), [Building, releasing and contributing](#contributing) (1)
 
 
 ### Dependencies

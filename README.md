@@ -105,26 +105,29 @@ not sign in or refresh tokens itself.
 2. Run each requested command with no stdin, in a fresh shell in the current
    directory: `sh` on macOS/Linux; on Windows Git Bash when it is installed,
    otherwise PowerShell. A command's process group (its job on Windows) is killed
-   after 120 s (`RESTLOOP_TIMEOUT` changes this, e.g. for long builds); a child
+   after 120 s (`RESTLOOP_TIMEOUT` changes this, e.g. for long builds); on Unix a child
    that left the group survives. Send back the
    exit code and output (truncated to 10,000 characters).
 3. Repeat until the model replies without a tool call, or after 100 steps
    (`RESTLOOP_MAX_STEPS`).
 
-At the end of a run (of each task in stdin mode), and on SIGHUP, SIGINT or SIGTERM (RestLoop then exits with
-129, 130 or 143), every process group its commands started gets SIGTERM and then,
-after about a second, SIGKILL; the wait is cut short by the task's deadline. On
+At the end of a run (of each task in stdin mode), and on a handled SIGHUP, SIGINT or SIGTERM (on Unix; an
+inherited ignore stays ignored, and RestLoop then exits with 129, 130 or 143), every
+process group its commands started gets SIGTERM and then, after about a second, SIGKILL
+if the group remains; the wait is cut short by the task's deadline. On
 Windows the job object is closed, which kills its processes without a graceful
 phase. A server a command started in the background keeps running between the steps
 of one run.
 
 The limits:
-- a process that calls setsid or daemonizes escapes (use a container or a cgroup);
+- on Unix a process that calls setsid or daemonizes escapes (use a container or a cgroup);
 - on Unix at most 32 groups may live at once, and the next command is refused;
 - output past 1 MiB per command is dropped;
 - when `/dev/fd` cannot be read, only the file descriptors up to
-  1023 are closed;
-- a process group id that is reused within one process is a known small gap.
+  1023 are marked close-on-exec (a failure to mark one is ignored);
+- a process group id that is reused within one process is a known small gap;
+- with an npm install, a SIGTERM sent only to the launcher (`npm/bin/restloop.js`) kills
+  node and leaves RestLoop and its commands running.
 
 A request that fails with 429, 5xx, a network error or an HTTP 200 without a reply is tried up
 to 5 times in all, unless the error says the credits or plan limit are used up. An empty reply

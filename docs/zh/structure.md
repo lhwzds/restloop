@@ -8,19 +8,19 @@ title: 代码结构
 
 本页由 Codocia 根据代码自动生成，每次 build 重新计算：功能区划分、各区自带的说明、区之间的 import 依赖，以及讲解各区的页面。
 
-范围内共 15 个文件，3,909 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
+范围内共 15 个文件，3,913 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
 
 ## 文件结构
 
 **仓库根目录**
 
-- （根目录文件） — 326 行，3 个文件。A minimal agent loop: one model, one shell tool.\
+- （根目录文件） — 330 行，3 个文件。A minimal agent loop: one model, one shell tool.\
   讲解：[概览](01-overview.md) (2), [用法与配置](02-usage.md) (1), [构建、发布与贡献](04-contributing.md) (1)
 - `.github/` — 201 行，2 个文件\
   讲解：[构建、发布与贡献](04-contributing.md) (3)
 - `src/` — 2,663 行，4 个文件。RestLoop's core: the agent loop and the model client.\
   核心文件：`shell.rs` `lib.rs` `tests.rs`\
-  讲解：[概览](01-overview.md) (4), [用法与配置](02-usage.md) (7), [工作原理](03-how-it-works.md) (9), [构建、发布与贡献](04-contributing.md) (3)
+  讲解：[概览](01-overview.md) (5), [用法与配置](02-usage.md) (7), [工作原理](03-how-it-works.md) (9), [构建、发布与贡献](04-contributing.md) (3)
 - `tests/` — 557 行，1 个文件\
   讲解：[构建、发布与贡献](04-contributing.md) (1)
 
@@ -31,7 +31,7 @@ title: 代码结构
   讲解：[构建、发布与贡献](04-contributing.md) (1)
 - `bin/` — 61 行，1 个文件\
   核心文件：`restloop.js`\
-  讲解：[构建、发布与贡献](04-contributing.md) (1)
+  讲解：[概览](01-overview.md) (1), [构建、发布与贡献](04-contributing.md) (1)
 
 
 ## 依赖结构

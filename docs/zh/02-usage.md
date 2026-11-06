@@ -58,9 +58,9 @@ stdout 只输出模型的文本：每条非空回复都会去掉首尾空白后�
 usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapsed=41s
 ```
 
-服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()` 而不是 CLI，所以把它当作库使用的程序也会在 stderr 上看到：命令及结果、重试、溢出提示，以及保存 session 或最终回复文件失败的错误。只有 stdin 提示符 `> ` 属于 CLI。
+服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()` 而不是 CLI，所以把它当作库使用的程序也会在 stderr 上看到：命令及结果、重试、溢出提示，以及保存 session 或最终回复文件失败的错误。只有 stdin 提示符 `> ` 属于 CLI。默认的命令执行器在 SIGKILL 发送失败而进程组仍在时，还会输出 `restloop: cannot stop a process group`。
 
-<sub>来源: [lib.rs:49-53](../../src/lib.rs#L49-L53) · [lib.rs:81-95](../../src/lib.rs#L81-L95) · [lib.rs:122-123](../../src/lib.rs#L122-L123) · [lib.rs:130-134](../../src/lib.rs#L130-L134) · [lib.rs:397-398](../../src/lib.rs#L397-L398) · +1</sub>
+<sub>来源: [shell.rs:270-277](../../src/shell.rs#L270-L277) · [lib.rs:49-53](../../src/lib.rs#L49-L53) · [lib.rs:81-95](../../src/lib.rs#L81-L95) · [lib.rs:122-123](../../src/lib.rs#L122-L123) · [lib.rs:130-134](../../src/lib.rs#L130-L134) · +2</sub>
 
 ## 最终回复文件
 

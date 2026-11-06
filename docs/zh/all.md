@@ -29,19 +29,22 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 
 ### 一次运行会留下什么
 
-任务的命令启动的任何东西都不应比任务活得更久。任务结束时（stdin 模式下每个任务结束时都如此），以及收到 SIGHUP、SIGINT 或 SIGTERM 时（RestLoop 随后以 129、130 或 143 退出），命令启动的每个进程组都会先收到 SIGTERM，大约一秒后收到 SIGKILL；任务的 deadline 会缩短这段等待。在 Windows 上则关闭 job object，这会 kill 其中的进程，没有优雅退出阶段。后台服务器在同一任务的各步之间会继续运行。
-
-限制：
-
-- 调用 `setsid` 或变成 daemon 的进程会逃脱；请用容器或 cgroup。
-- 在 Unix 上同时最多存在 32 个进程组；再下一条命令会得到错误，而不会运行。
-- 每条命令超过 1 MiB 的输出会被丢弃。
-- 继承来的文件描述符不会传给命令；无法读取 `/dev/fd` 时，只处理编号不超过 1023 的。
-- 同一进程内进程组 id 被复用，是一个已知的小缺口。
+任务的命令启动的任何东西都不应比任务活得更久。任务结束时（stdin 模式下每个任务结束时都如此），以及处理到信号时，命令启动的每个进程组都会先收到 SIGTERM，大约一秒后，如果进程组还在，再收到 SIGKILL；任务的 deadline 会缩短这段等待。在 Unix 上，处理的信号是 SIGHUP、SIGINT 和 SIGTERM，除非继承时就被忽略（`nohup`），RestLoop 随后以 129、130 或 143 退出。在 Windows 上则关闭 job object，这会 kill 其中的进程，没有优雅退出阶段。后台服务器在同一任务的各步之间会继续运行。
 
 这些属于 CLI 的设置：把 `shell::shell()` 当库调用的程序要自己调用 `shell::install()` 和 `shell::stop_all()`。
 
-<sub>来源: [main.rs:30-34](../../src/main.rs#L30-L34) · [main.rs:56-57](../../src/main.rs#L56-L57) · [shell.rs:56-75](../../src/shell.rs#L56-L75) · [shell.rs:229-232](../../src/shell.rs#L229-L232) · [shell.rs:354-360](../../src/shell.rs#L354-L360) · +2</sub>
+<sub>来源: [main.rs:30-34](../../src/main.rs#L30-L34) · [main.rs:56-57](../../src/main.rs#L56-L57) · [shell.rs:56-75](../../src/shell.rs#L56-L75) · [shell.rs:279-311](../../src/shell.rs#L279-L311) · [shell.rs:396-421](../../src/shell.rs#L396-L421) · +1</sub>
+
+### 这种清理的限制
+
+- 在 Unix 上，调用 `setsid` 或变成 daemon 的进程会逃脱；请用容器或 cgroup。
+- 在 Unix 上同时最多存在 32 个进程组；再下一条命令会得到错误，而不会运行。
+- 每条命令超过 1 MiB 的输出会被丢弃。
+- 继承来的文件描述符会被标记为 close-on-exec，标记失败会被忽略；无法读取 `/dev/fd` 时，只标记编号不超过 1023 的。
+- 同一进程内进程组 id 被复用，是一个已知的小缺口。
+- 通过 npm 安装时，只发给启动器（`npm/bin/restloop.js`）的 SIGTERM 会杀掉 node，而 RestLoop 和它的命令会继续运行。
+
+<sub>来源: [shell.rs:229-232](../../src/shell.rs#L229-L232) · [shell.rs:354-360](../../src/shell.rs#L354-L360) · [shell.rs:423-437](../../src/shell.rs#L423-L437) · [restloop.js:56-58](../../npm/bin/restloop.js#L56-L58)</sub>
 
 ### 第一次运行
 
@@ -114,9 +117,9 @@ stdout 只输出模型的文本：每条非空回复都会去掉首尾空白后�
 usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapsed=41s
 ```
 
-服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()` 而不是 CLI，所以把它当作库使用的程序也会在 stderr 上看到：命令及结果、重试、溢出提示，以及保存 session 或最终回复文件失败的错误。只有 stdin 提示符 `> ` 属于 CLI。
+服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()` 而不是 CLI，所以把它当作库使用的程序也会在 stderr 上看到：命令及结果、重试、溢出提示，以及保存 session 或最终回复文件失败的错误。只有 stdin 提示符 `> ` 属于 CLI。默认的命令执行器在 SIGKILL 发送失败而进程组仍在时，还会输出 `restloop: cannot stop a process group`。
 
-<sub>来源: [lib.rs:49-53](../../src/lib.rs#L49-L53) · [lib.rs:81-95](../../src/lib.rs#L81-L95) · [lib.rs:122-123](../../src/lib.rs#L122-L123) · [lib.rs:130-134](../../src/lib.rs#L130-L134) · [lib.rs:397-398](../../src/lib.rs#L397-L398) · +1</sub>
+<sub>来源: [shell.rs:270-277](../../src/shell.rs#L270-L277) · [lib.rs:49-53](../../src/lib.rs#L49-L53) · [lib.rs:81-95](../../src/lib.rs#L81-L95) · [lib.rs:122-123](../../src/lib.rs#L122-L123) · [lib.rs:130-134](../../src/lib.rs#L130-L134) · +2</sub>
 
 ### 最终回复文件
 
@@ -162,7 +165,7 @@ flowchart TD
 
 第一条消息是 `system_prompt()` 生成的系统 prompt：agent 的指令，加上操作系统、shell、工作目录、命令超时，以及设置了 deadline 时的预算。之后是用户任务；模型每次回复对应一条 assistant 消息，只保留 `content`、`tool_calls`，以及存在时的 `reasoning_content` 和 Responses API 的 `output_items`。
 
-每个工具调用对应一条 `tool` 消息，带上匹配的 `tool_call_id`。参数不是带 `command` 字符串的 JSON 时，返回一条引用了原参数的错误，让模型自行纠正。
+每个工具调用对应一条 `tool` 消息，带上匹配的 `tool_call_id`。
 
 <sub>来源: [lib.rs:170-181](../../src/lib.rs#L170-L181) · [lib.rs:91-107](../../src/lib.rs#L91-L107) · [lib.rs:118-121](../../src/lib.rs#L118-L121) · [lib.rs:146-147](../../src/lib.rs#L146-L147)</sub>
 
@@ -170,7 +173,7 @@ flowchart TD
 
 `complete()` 向 `/chat/completions` POST `{"model", "messages", "tools"}`，设置了推理强度时再加上 `reasoning_effort`，没有采样参数、token 上限或流式输出。每次尝试都会重新读取 key（[用法与配置](#usage)）；key 文件无法读取时以 `cannot read <path>` 失败。
 
-网络错误（包括无法读取的 body）、HTTP 429、HTTP 5xx，没有 `choices[0].message` 的 HTTP 200（MiniMax 的某些错误，`333b7b64`），以及空回复（没有工具调用，除开头的 `<think>` 块外也没有文字）都会重试：总共五次尝试，中间分别等待 2、4、8、16 s，并打印 `restloop: <what>, retrying`；第五次仍为空的回复就作为最终回复。body 中出现 `insufficient_quota` 或 `subscription_sharing_usage_limit_exceeded` 时立即失败，除非回复为空。其他状态码和第五次失败都会让任务以 `<what>: <text>` 失败（`HTTP <status>`、`request failed` 或 `no reply`），或用下文的 deadline 格式。不是 JSON 的 200 会立即以 `bad response` 失败。
+网络错误、HTTP 429、HTTP 5xx，没有 `choices[0].message` 的 HTTP 200（MiniMax 的某些错误，`333b7b64`），以及空回复（没有工具调用，除开头的 `<think>` 块外也没有文字）都会重试：总共五次尝试，中间分别等待 2、4、8、16 s，并打印 `restloop: <what>, retrying`；第五次仍为空的回复就作为最终回复。body 中出现 `insufficient_quota` 或 `subscription_sharing_usage_limit_exceeded` 时立即失败，除非回复为空。其他状态码和第五次失败都会让任务以 `<what>: <text>` 失败（`HTTP <status>`、`request failed` 或 `no reply`），或用下文的 deadline 格式。不是 JSON 的 200 会立即以 `bad response` 失败。
 
 <sub>来源: [lib.rs:285-401](../../src/lib.rs#L285-L401) · [commit 333b7b64](https://github.com/lhwzds/restloop/commit/333b7b64)</sub>
 
@@ -211,7 +214,7 @@ flowchart TD
 
 ### 执行一条命令
 
-`run()` 以回调接收命令执行器；CLI 传入公开的 `shell::shell()`，它让每条命令都在当前目录下一个全新的 shell 中执行：Unix 上用 `sh -c`；Windows 上，如果 `ProgramFiles` 或 `ProgramFiles(x86)` 下存在 `Git\bin\bash.exe` 就用它（模型写的是 bash；PowerShell 5.1 会加 BOM），否则用 `powershell -NoProfile -NonInteractive` 并设置 UTF-8 输出。stdin 为 null，并设置了 `GIT_TERMINAL_PROMPT=0`，所以不会有任何东西等待输入；`PYTHONUTF8=1` 让 Python 的 I/O 保持 UTF-8。
+`run()` 以回调接收命令执行器；CLI 传入公开的 `shell::shell()`，它让每条命令都在当前目录下一个全新的 shell 中执行：Unix 上用 `sh -c`；Windows 上，如果 `ProgramFiles` 或 `ProgramFiles(x86)` 下存在 `Git\bin\bash.exe` 就用它（模型写的是 bash；PowerShell 5.1 会加 BOM），否则用 `powershell -NoProfile -NonInteractive` 并设置 UTF-8 输出。stdin 为 null，并设置了 `GIT_TERMINAL_PROMPT=0`；`PYTHONUTF8=1` 让 Python 的 I/O 保持 UTF-8。
 
 shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超时；之后整个进程组（Windows 上是 job object）会被停止，而 `exit:` 报告的仍是 shell 自身的退出码。在 Unix 上，停止是先发 SIGTERM，最多等 1 s，再发 SIGKILL；Windows 上用 `TerminateJobObject`。重定向了输出的后台服务（`server > log 2>&1 &`）会一直运行到任务结束：[概览](#overview)。继承哪些变量见 [用法与配置](#usage)。
 
@@ -219,9 +222,9 @@ shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超�
 
 ### 模型从命令中看到什么
 
-命令的工具结果第一行是 `exit: <status>`，后面是合并后的输出。有两种例外：参数无效时返回 `error: arguments must be JSON…`，shell 无法启动时返回 `error: <reason>`。status 是退出码；如果 shell 被信号终止则为 `killed`，超时则为 `timeout after Ns`。超过 10,000 个字符（`MAX_OUTPUT`）的输出只保留开头和结尾各 5,000 个字符，中间插入 `... [N chars truncated] ...`。超过 1 MiB 的输出会先被丢弃。无效的 UTF-8 会被替换。
+命令的工具结果第一行是 `exit: <status>`，后面是合并后的输出。有两种例外：参数无效时返回 `error: arguments must be JSON…`，shell 无法启动时返回 `error: <reason>`。status 是退出码；如果 shell 被信号终止则为 `killed`，子进程已消失且拿不到状态则为 `exited, status unknown`，超时则为 `timeout after Ns`；被停止的命令未见退出时会加上 `(child did not exit after SIGKILL)`。超过 10,000 个字符（`MAX_OUTPUT`）的输出只保留开头和结尾各 5,000 个字符，中间插入 `... [N chars truncated] ...`。超过 1 MiB 的输出会先被丢弃。无效的 UTF-8 会被替换。
 
-<sub>来源: [shell.rs:14-16](../../src/shell.rs#L14-L16) · [shell.rs:136-139](../../src/shell.rs#L136-L139) · [shell.rs:199-219](../../src/shell.rs#L199-L219) · [lib.rs:143-145](../../src/lib.rs#L143-L145)</sub>
+<sub>来源: [shell.rs:171-176](../../src/shell.rs#L171-L176) · [shell.rs:184-189](../../src/shell.rs#L184-L189) · [shell.rs:14-16](../../src/shell.rs#L14-L16) · [shell.rs:136-139](../../src/shell.rs#L136-L139) · [shell.rs:199-219](../../src/shell.rs#L199-L219) · +1</sub>
 
 <a id="contributing"></a>
 
@@ -281,19 +284,19 @@ stamp 后的 `package.json` 和 `checksums.json` 只存在于 runner 上，从�
 
 本页由 Codocia 根据代码自动生成，每次 build 重新计算：功能区划分、各区自带的说明、区之间的 import 依赖，以及讲解各区的页面。
 
-范围内共 15 个文件，3,909 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
+范围内共 15 个文件，3,913 行；已排除 `Cargo.lock`、`LICENSE`、`.gitignore`
 
 ### 文件结构
 
 **仓库根目录**
 
-- （根目录文件） — 326 行，3 个文件。A minimal agent loop: one model, one shell tool.\
+- （根目录文件） — 330 行，3 个文件。A minimal agent loop: one model, one shell tool.\
   讲解：[概览](#overview) (2), [用法与配置](#usage) (1), [构建、发布与贡献](#contributing) (1)
 - `.github/` — 201 行，2 个文件\
   讲解：[构建、发布与贡献](#contributing) (3)
 - `src/` — 2,663 行，4 个文件。RestLoop's core: the agent loop and the model client.\
   核心文件：`shell.rs` `lib.rs` `tests.rs`\
-  讲解：[概览](#overview) (4), [用法与配置](#usage) (7), [工作原理](#how-it-works) (9), [构建、发布与贡献](#contributing) (3)
+  讲解：[概览](#overview) (5), [用法与配置](#usage) (7), [工作原理](#how-it-works) (9), [构建、发布与贡献](#contributing) (3)
 - `tests/` — 557 行，1 个文件\
   讲解：[构建、发布与贡献](#contributing) (1)
 
@@ -304,7 +307,7 @@ stamp 后的 `package.json` 和 `checksums.json` 只存在于 runner 上，从�
   讲解：[构建、发布与贡献](#contributing) (1)
 - `bin/` — 61 行，1 个文件\
   核心文件：`restloop.js`\
-  讲解：[构建、发布与贡献](#contributing) (1)
+  讲解：[概览](#overview) (1), [构建、发布与贡献](#contributing) (1)
 
 
 ### 依赖结构
