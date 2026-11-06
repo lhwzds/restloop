@@ -106,14 +106,14 @@ assistant 的文本输出到 stdout；命令及其输出写入 stderr。
 3. 重复以上步骤，直到模型不调用工具直接回复，或达到 100 步
    （`RESTLOOP_MAX_STEPS`）。
 
-一次运行结束时，以及收到 SIGHUP、SIGINT 或 SIGTERM 时（RestLoop 随后以
+一次运行结束时（stdin 模式下是每个任务结束时），以及收到 SIGHUP、SIGINT 或 SIGTERM 时（RestLoop 随后以
 129、130 或 143 退出），它的命令启动的每个进程组都会先收到 SIGTERM，大约一秒后收到
 SIGKILL；任务的 deadline 会缩短这段等待。在 Windows 上则关闭 job object，这会 kill
 其中的进程，没有优雅退出阶段。命令在后台启动的服务器，在同一次运行的各步之间会继续运行。
 
 限制：
 - 调用 setsid 或变成 daemon 的进程会逃脱（请用容器或 cgroup）；
-- 同时最多存在 32 个进程组，再下一条命令会被拒绝；
+- 在 Unix 上，同时最多存在 32 个进程组，再下一条命令会被拒绝；
 - 每条命令超过 1 MiB 的输出会被丢弃；
 - 无法读取 `/dev/fd` 时，只关闭编号不超过 1023 的文件描述符；
 - 同一进程内进程组 id 被复用，是一个已知的小缺口。

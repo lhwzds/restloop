@@ -6,7 +6,7 @@ evidence:
   - src/main.rs:1-4 #d8a8ca1745b5
   - src/shell.rs:1 #5c08489f5014
   - README.md:54-56 #dea6762191e3
-  - Cargo.toml:1-15 #7ac09dee7302
+  - Cargo.toml:1-15 #54d78ce9b8c9
   - commit:33511748
   - commit:cad33d13
 ---

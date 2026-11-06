@@ -111,7 +111,7 @@ not sign in or refresh tokens itself.
 3. Repeat until the model replies without a tool call, or after 100 steps
    (`RESTLOOP_MAX_STEPS`).
 
-At the end of a run, and on SIGHUP, SIGINT or SIGTERM (RestLoop then exits with
+At the end of a run (of each task in stdin mode), and on SIGHUP, SIGINT or SIGTERM (RestLoop then exits with
 129, 130 or 143), every process group its commands started gets SIGTERM and then,
 after about a second, SIGKILL; the wait is cut short by the task's deadline. On
 Windows the job object is closed, which kills its processes without a graceful
@@ -120,7 +120,7 @@ of one run.
 
 The limits:
 - a process that calls setsid or daemonizes escapes (use a container or a cgroup);
-- at most 32 groups may live at once, and the next command is refused;
+- on Unix at most 32 groups may live at once, and the next command is refused;
 - output past 1 MiB per command is dropped;
 - when `/dev/fd` cannot be read, only the file descriptors up to
   1023 are closed;
