@@ -17,9 +17,9 @@ All arguments are joined with spaces into one task: `restloop fix the build` and
 - **With a task**, RestLoop runs it and exits: status 0 when the model finished, 1 when the run failed (an API error after retries, or the step limit).
 - **Without a task**, it prints `> ` on stderr and reads one task per line from stdin until end of input. Empty lines are skipped. All tasks share one conversation, so a later line can refer to earlier work. A failed task is reported on stderr and the loop continues.
 
-Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SESSION` names a file that is not a session.
+Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SESSION` names a file that is not a session. On Unix, SIGHUP, SIGINT and SIGTERM give 129, 130 and 143 ([Overview](01-overview.md)).
 
-<sub>Sources: [main.rs:17-36](../src/main.rs#L17-L36) · [main.rs:56-70](../src/main.rs#L56-L70)</sub>
+<sub>Sources: [main.rs:17-36](../src/main.rs#L17-L36) · [main.rs:64-78](../src/main.rs#L64-L78) · [shell.rs:390-394](../src/shell.rs#L390-L394)</sub>
 
 ## Environment variables
 
@@ -40,13 +40,13 @@ Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SE
 
 Numbers that do not parse as an unsigned integer silently fall back to the default (`env_num`). `RESTLOOP_LOG_USAGE` must be exactly `1`; empty strings count as unset for the key file and the effort.
 
-<sub>Sources: [main.rs:12-15](../src/main.rs#L12-L15) · [main.rs:73-106](../src/main.rs#L73-L106) · [main.rs:147-160](../src/main.rs#L147-L160) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>Sources: [main.rs:12-15](../src/main.rs#L12-L15) · [main.rs:81-114](../src/main.rs#L81-L114) · [main.rs:155-168](../src/main.rs#L155-L168) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ## What commands inherit
 
 Restloop's own settings are no longer passed in commands' environment: every `RESTLOOP_*` name is removed before a command starts (`restloop_var`), so the key, the key file and the URL do not reach it; on Windows the match ignores case. Commands inherit everything else, including any copy of the key under another name. A command running as the same user can still reach restloop's environment (`/proc/$PPID/environ`, `ps -E`) or read the key file if it knows the path; a sandbox or another user is the real fix.
 
-<sub>Sources: [shell.rs:13-26](../src/shell.rs#L13-L26) · [shell.rs:66-71](../src/shell.rs#L66-L71) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
+<sub>Sources: [shell.rs:29-42](../src/shell.rs#L29-L42) · [shell.rs:130-135](../src/shell.rs#L130-L135) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
 
 ## What goes to stdout and stderr
 
@@ -80,4 +80,4 @@ With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, wh
 
 Run again with the same path to resume; copy the file first to fork. The saved system prompt is reused unchanged. With `RESTLOOP_DEADLINE`, a resumed task gets `[You have Ns in total for this request; the time used in tool results counts from now.]` appended. The file is replaced after every step through a `<path>.<pid>.tmp` rename, so after a kill it holds the last complete step. Concurrent runs never corrupt it, but the last writer wins.
 
-<sub>Sources: [main.rs:37-47](../src/main.rs#L37-L47) · [main.rs:108-131](../src/main.rs#L108-L131) · [lib.rs:154-168](../src/lib.rs#L154-L168) · [README.md:83-100](../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
+<sub>Sources: [main.rs:42-52](../src/main.rs#L42-L52) · [main.rs:116-139](../src/main.rs#L116-L139) · [lib.rs:154-168](../src/lib.rs#L154-L168) · [README.md:83-100](../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>

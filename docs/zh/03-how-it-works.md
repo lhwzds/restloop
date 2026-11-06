@@ -6,7 +6,7 @@ title: 工作原理
 
 <sub>[English](../03-how-it-works.md) · **中文**</sub>
 
-所有事情都发生在 `src/lib.rs` 的 `run()` 里：一次迭代（即一步）就是一次模型回复，再加上它请求执行的命令。
+`src/lib.rs` 的 `run()` 完成所有事情：一步就是一次模型回复，再加上它请求执行的命令。
 
 ```mermaid
 flowchart TD
@@ -50,7 +50,7 @@ flowchart TD
 
 自 `21f3c1dc` 起，`too_long()` 负责识别上下文溢出：HTTP 400 或 413，或 Responses 事件流报告的失败（`no reply: `），且文本包含服务商使用的某个短语（`context_length_exceeded`、"maximum context length"、"context window exceeds"、"prompt is too long"、"exceeds the available context size"）。`04004c68` 去掉了 "too long" 这类更宽泛的词，因为一个无关的 400（`tool_call_id` 过长）触发过历史裁剪。
 
-匹配成功后，`drop_old_output()` 把尚未缩短的 `tool` 消息中较早的一半（向上取整）缩成它们的第一行加上 `[output removed to fit the context window]`，用 `trim_thinking()` 清空旧的推理内容，然后重试请求。每次重试都会把剩下的再减半；没有可改动的内容时，返回该错误。命令和可见的回复都会保留，所以模型仍然知道自己做过什么。
+匹配成功后，`drop_old_output()` 把尚未缩短的 `tool` 消息中较早的一半（向上取整）缩成它们的第一行加上 `[output removed to fit the context window]`，用 `trim_thinking()` 清空旧的推理内容，然后重试请求。每次重试都会把剩下的再减半；没有可改动的内容时，返回该错误。命令和可见的回复都会保留。
 
 <sub>来源: [lib.rs:69-80](../../src/lib.rs#L69-L80) · [lib.rs:214-250](../../src/lib.rs#L214-L250) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
@@ -66,23 +66,23 @@ flowchart TD
 
 1. 新对话的系统 prompt 末尾加上 `You have Ns in total for this task; each tool result ends with the time used so far.`；恢复的 session 则在新任务中附带一句类似的话（[用法与配置](02-usage.md)）。
 2. 每条命令的工具结果末尾加上 `[time used: Ns of Ds]`。
-3. 命令的超时取 `RESTLOOP_TIMEOUT` 和剩余时间中较小的那个（剩余时间下限为 1 s）。
+3. 命令的超时取 `RESTLOOP_TIMEOUT` 和剩余时间中较小的那个（剩余时间下限为 1 s）；过了 deadline，CLI 不再启动命令。
 4. 模型请求的超时是读取 key 之后的剩余时间（最多 600 s），deadline 之后不再发出请求：`restloop: deadline of <N>s reached`。重试前的等待会到达 deadline 时，以 `deadline of <N>s reached (<what>: <text>)` 结束；第五次尝试失败时，只有 deadline 已经过去才这样报告（`a4ba4994`）。
 
 时间从进程启动开始计算：在 stdin 模式下，同一个预算覆盖所有任务。
 
-<sub>来源: [lib.rs:173-181](../../src/lib.rs#L173-L181) · [main.rs:38-46](../../src/main.rs#L38-L46) · [lib.rs:124-129](../../src/lib.rs#L124-L129) · [lib.rs:135-140](../../src/lib.rs#L135-L140) · [lib.rs:304-320](../../src/lib.rs#L304-L320) · +3</sub>
+<sub>来源: [lib.rs:173-181](../../src/lib.rs#L173-L181) · [main.rs:43-51](../../src/main.rs#L43-L51) · [lib.rs:124-129](../../src/lib.rs#L124-L129) · [lib.rs:135-140](../../src/lib.rs#L135-L140) · [lib.rs:304-320](../../src/lib.rs#L304-L320) · +4</sub>
 
 ## 执行一条命令
 
 `run()` 以回调接收命令执行器；CLI 传入公开的 `shell::shell()`，它让每条命令都在当前目录下一个全新的 shell 中执行：Unix 上用 `sh -c`；Windows 上，如果 `ProgramFiles` 或 `ProgramFiles(x86)` 下存在 `Git\bin\bash.exe` 就用它（模型写的是 bash；PowerShell 5.1 会加 BOM），否则用 `powershell -NoProfile -NonInteractive` 并设置 UTF-8 输出。stdin 为 null，并设置了 `GIT_TERMINAL_PROMPT=0`，所以不会有任何东西等待输入；`PYTHONUTF8=1` 让 Python 的 I/O 保持 UTF-8。
 
-shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超时；之后整个进程组（Windows 上是 job object）会被 kill，而 `exit:` 报告的仍是 shell 自身的退出码。后台服务只要重定向自己的输出（`server > log 2>&1 &`）就能继续运行。在 Unix 上，已脱离进程组的子进程不会因超时被 kill。在 Unix 上，kill 直接向进程组发信号；Windows 上用 `TerminateJobObject`。继承哪些变量见 [用法与配置](02-usage.md)。
+shell 退出后，仍占用其管道的进程最多还有 2 s，且不超过超时；之后整个进程组（Windows 上是 job object）会被停止，而 `exit:` 报告的仍是 shell 自身的退出码。在 Unix 上，停止是先发 SIGTERM，最多等 1 s，再发 SIGKILL；Windows 上用 `TerminateJobObject`。重定向了输出的后台服务（`server > log 2>&1 &`）会一直运行到任务结束：[概览](01-overview.md)。继承哪些变量见 [用法与配置](02-usage.md)。
 
-<sub>来源: [shell.rs:28-125](../../src/shell.rs#L28-L125) · [main.rs:48-50](../../src/main.rs#L48-L50) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>来源: [shell.rs:44-54](../../src/shell.rs#L44-L54) · [shell.rs:101-206](../../src/shell.rs#L101-L206) · [shell.rs:279-332](../../src/shell.rs#L279-L332) · [main.rs:53-55](../../src/main.rs#L53-L55) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · +1</sub>
 
 ## 模型从命令中看到什么
 
-命令的工具结果第一行是 `exit: <status>`，后面是合并后的输出。有两种例外：参数无效时返回 `error: arguments must be JSON…`，shell 无法启动时返回 `error: <reason>`。status 是退出码；如果 shell 被信号终止则为 `killed`，超时则为 `timeout after Ns`。超过 10,000 个字符（`MAX_OUTPUT`）的输出只保留开头和结尾各 5,000 个字符，中间插入 `... [N chars truncated] ...`。无效的 UTF-8 会被替换。
+命令的工具结果第一行是 `exit: <status>`，后面是合并后的输出。有两种例外：参数无效时返回 `error: arguments must be JSON…`，shell 无法启动时返回 `error: <reason>`。status 是退出码；如果 shell 被信号终止则为 `killed`，超时则为 `timeout after Ns`。超过 10,000 个字符（`MAX_OUTPUT`）的输出只保留开头和结尾各 5,000 个字符，中间插入 `... [N chars truncated] ...`。超过 1 MiB 的输出会先被丢弃。无效的 UTF-8 会被替换。
 
-<sub>来源: [shell.rs:72-75](../../src/shell.rs#L72-L75) · [shell.rs:123-138](../../src/shell.rs#L123-L138) · [lib.rs:143-145](../../src/lib.rs#L143-L145)</sub>
+<sub>来源: [shell.rs:14-16](../../src/shell.rs#L14-L16) · [shell.rs:136-139](../../src/shell.rs#L136-L139) · [shell.rs:199-219](../../src/shell.rs#L199-L219) · [lib.rs:143-145](../../src/lib.rs#L143-L145)</sub>

@@ -17,9 +17,9 @@ RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命
 - **带任务时**，RestLoop 执行完就退出：模型正常完成返回状态 0，运行失败（重试后仍有 API 错误，或达到步数上限）返回 1。
 - **不带任务时**，它在 stderr 上打印 `> `，然后从 stdin 每行读取一个任务，直到输入结束。空行会被跳过。所有任务共用一个对话，所以后面的行可以引用前面做过的事。某个任务失败时会在 stderr 上报告，循环继续。
 
-状态 2 表示根本没有开始运行：`RESTLOOP_MODEL` 未设置，或者 `RESTLOOP_SESSION` 指向的文件不是 session 文件。
+状态 2 表示根本没有开始运行：`RESTLOOP_MODEL` 未设置，或者 `RESTLOOP_SESSION` 指向的文件不是 session 文件。在 Unix 上，SIGHUP、SIGINT 和 SIGTERM 分别对应 129、130 和 143（[概览](01-overview.md)）。
 
-<sub>来源: [main.rs:17-36](../../src/main.rs#L17-L36) · [main.rs:56-70](../../src/main.rs#L56-L70)</sub>
+<sub>来源: [main.rs:17-36](../../src/main.rs#L17-L36) · [main.rs:64-78](../../src/main.rs#L64-L78) · [shell.rs:390-394](../../src/shell.rs#L390-L394)</sub>
 
 ## 环境变量
 
@@ -40,13 +40,13 @@ RestLoop 除了 `-h`/`--help`（打印环境变量列表）之外没有其他命
 
 数值无法解析为无符号整数时，会静默回退到默认值（`env_num`）。`RESTLOOP_LOG_USAGE` 必须恰好是 `1`；对 key 文件和推理强度来说，空字符串等同于未设置。
 
-<sub>来源: [main.rs:12-15](../../src/main.rs#L12-L15) · [main.rs:73-106](../../src/main.rs#L73-L106) · [main.rs:147-160](../../src/main.rs#L147-L160) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>来源: [main.rs:12-15](../../src/main.rs#L12-L15) · [main.rs:81-114](../../src/main.rs#L81-L114) · [main.rs:155-168](../../src/main.rs#L155-L168) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ## 命令会继承什么
 
 RestLoop 自己的设置不再传入命令的环境：命令启动前会去掉所有 `RESTLOOP_*` 名称（`restloop_var`），所以 key、key 文件和 URL 都不会传给命令；在 Windows 上匹配不区分大小写。其他变量命令都会继承，包括以其他名字保存的 key 副本。以同一用户运行的命令仍然可以读到 restloop 的环境（`/proc/$PPID/environ`、`ps -E`），知道路径时也能读 key 文件；真正的解决办法是沙箱或换一个用户。
 
-<sub>来源: [shell.rs:13-26](../../src/shell.rs#L13-L26) · [shell.rs:66-71](../../src/shell.rs#L66-L71) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
+<sub>来源: [shell.rs:29-42](../../src/shell.rs#L29-L42) · [shell.rs:130-135](../../src/shell.rs#L130-L135) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
 
 ## stdout 和 stderr 各输出什么
 
@@ -80,4 +80,4 @@ usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapse
 
 用同一路径再次运行即可恢复；先复制文件就是分叉。保存的系统 prompt 原样复用。设置了 `RESTLOOP_DEADLINE` 时，恢复后的任务末尾会追加 `[You have Ns in total for this request; the time used in tool results counts from now.]`。每一步之后都会通过 `<path>.<pid>.tmp` 重命名来替换文件，所以进程被 kill 后，文件里保存的是最后一个完整的步骤。并发运行不会损坏文件，但最后写入的会覆盖前面的。
 
-<sub>来源: [main.rs:37-47](../../src/main.rs#L37-L47) · [main.rs:108-131](../../src/main.rs#L108-L131) · [lib.rs:154-168](../../src/lib.rs#L154-L168) · [README.md:83-100](../../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
+<sub>来源: [main.rs:42-52](../../src/main.rs#L42-L52) · [main.rs:116-139](../../src/main.rs#L116-L139) · [lib.rs:154-168](../../src/lib.rs#L154-L168) · [README.md:83-100](../../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>

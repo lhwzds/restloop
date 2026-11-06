@@ -6,7 +6,7 @@ title: How it works
 
 <sub>**English** · [中文](zh/03-how-it-works.md)</sub>
 
-Everything happens in `run()` in `src/lib.rs`: one iteration (a step) is one model reply plus the commands it requested.
+`run()` in `src/lib.rs` does everything: a step is one model reply plus the commands it requested.
 
 ```mermaid
 flowchart TD
@@ -50,7 +50,7 @@ With `RESTLOOP_WIRE_API=responses`, `complete()` posts to `/responses`. The conv
 
 Since `21f3c1dc`, `too_long()` recognises a context overflow: an HTTP 400 or 413, or a Responses stream failure (`no reply: `), whose text contains a provider phrase (`context_length_exceeded`, "maximum context length", "context window exceeds", "prompt is too long", "exceeds the available context size"). `04004c68` dropped looser words like "too long" after an overlong `tool_call_id` triggered history cuts.
 
-On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` messages not yet shortened to their first line plus `[output removed to fit the context window]`, empties old reasoning with `trim_thinking()`, and the request is retried. Each retry halves the rest; when nothing changes, the error is returned. Commands and visible replies stay, so the model knows what it did.
+On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` messages not yet shortened to their first line plus `[output removed to fit the context window]`, empties old reasoning with `trim_thinking()`, and the request is retried. Each retry halves the rest; when nothing changes, the error is returned. Commands and visible replies stay.
 
 <sub>Sources: [lib.rs:69-80](../src/lib.rs#L69-L80) · [lib.rs:214-250](../src/lib.rs#L214-L250) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
@@ -66,23 +66,23 @@ On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` m
 
 1. A new conversation's system prompt ends with `You have Ns in total for this task; each tool result ends with the time used so far.`; a resumed session's new task, a similar sentence ([Usage and configuration](02-usage.md)).
 2. Each command's tool result ends with `[time used: Ns of Ds]`.
-3. A command's timeout is the smaller of `RESTLOOP_TIMEOUT` and the time left (floored at 1 s).
+3. A command's timeout is the smaller of `RESTLOOP_TIMEOUT` and the time left (floored at 1 s); the CLI starts none after it.
 4. A model request gets the time left after the key is read (600 s at most); none starts after it: `restloop: deadline of <N>s reached`. A retry sleep reaching it stops with `deadline of <N>s reached (<what>: <text>)`; a failed fifth attempt only if the deadline has passed (`a4ba4994`).
 
 Time counts from process start: in stdin mode one budget covers all tasks.
 
-<sub>Sources: [lib.rs:173-181](../src/lib.rs#L173-L181) · [main.rs:38-46](../src/main.rs#L38-L46) · [lib.rs:124-129](../src/lib.rs#L124-L129) · [lib.rs:135-140](../src/lib.rs#L135-L140) · [lib.rs:304-320](../src/lib.rs#L304-L320) · +3</sub>
+<sub>Sources: [lib.rs:173-181](../src/lib.rs#L173-L181) · [main.rs:43-51](../src/main.rs#L43-L51) · [lib.rs:124-129](../src/lib.rs#L124-L129) · [lib.rs:135-140](../src/lib.rs#L135-L140) · [lib.rs:304-320](../src/lib.rs#L304-L320) · +4</sub>
 
 ## Running a command
 
 `run()` takes the runner as a callback; the CLI passes the public `shell::shell()`, which runs each command in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash; PowerShell 5.1 adds a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0`, so nothing waits for input; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
 
-After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is killed, and `exit:` still reports the shell's code. A background service survives if it redirects its output (`server > log 2>&1 &`). On Unix a child that left the group survives a timeout. On Unix the kill signals the group directly; Windows uses `TerminateJobObject`. Inherited variables: [Usage and configuration](02-usage.md).
+After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is stopped, and `exit:` still reports the shell's code. On Unix a stop is SIGTERM, up to 1 s, then SIGKILL; Windows uses `TerminateJobObject`. A background service that redirects its output (`server > log 2>&1 &`) lives until the task ends: [Overview](01-overview.md). Inherited variables: [Usage and configuration](02-usage.md).
 
-<sub>Sources: [shell.rs:28-125](../src/shell.rs#L28-L125) · [main.rs:48-50](../src/main.rs#L48-L50) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>Sources: [shell.rs:44-54](../src/shell.rs#L44-L54) · [shell.rs:101-206](../src/shell.rs#L101-L206) · [shell.rs:279-332](../src/shell.rs#L279-L332) · [main.rs:53-55](../src/main.rs#L53-L55) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · +1</sub>
 
 ## What the model sees from a command
 
-A command's tool result is `exit: <status>` on the first line, then the combined output. Except: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Invalid UTF-8 is replaced.
+A command's tool result is `exit: <status>` on the first line, then the combined output. Except: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Output past 1 MiB is dropped first. Invalid UTF-8 is replaced.
 
-<sub>Sources: [shell.rs:72-75](../src/shell.rs#L72-L75) · [shell.rs:123-138](../src/shell.rs#L123-L138) · [lib.rs:143-145](../src/lib.rs#L143-L145)</sub>
+<sub>Sources: [shell.rs:14-16](../src/shell.rs#L14-L16) · [shell.rs:136-139](../src/shell.rs#L136-L139) · [shell.rs:199-219](../src/shell.rs#L199-L219) · [lib.rs:143-145](../src/lib.rs#L143-L145)</sub>

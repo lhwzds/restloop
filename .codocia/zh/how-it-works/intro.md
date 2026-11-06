@@ -1,9 +1,9 @@
 ---
 title: 
-source: #d0d7741cf106
+source: #4fb2485d218d
 ---
 
-所有事情都发生在 `src/lib.rs` 的 `run()` 里：一次迭代（即一步）就是一次模型回复，再加上它请求执行的命令。
+`src/lib.rs` 的 `run()` 完成所有事情：一步就是一次模型回复，再加上它请求执行的命令。
 
 ```mermaid
 flowchart TD

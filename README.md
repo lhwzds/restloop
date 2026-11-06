@@ -124,7 +124,7 @@ The limits:
 - output past 1 MiB per command is dropped;
 - when `/dev/fd` cannot be read, only the file descriptors up to
   1023 are closed;
-- a process group id that is reused within one run is a known small gap.
+- a process group id that is reused within one process is a known small gap.
 
 A request that fails with 429, 5xx, a network error or an HTTP 200 without a reply is tried up
 to 5 times in all, unless the error says the credits or plan limit are used up. An empty reply

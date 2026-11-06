@@ -6,17 +6,17 @@ title: restloop — All pages
 
 <sub>**English** · [中文](zh/all.md)</sub>
 
-These docs go one level below the README for RestLoop, a small Rust agent loop that gives a model one `shell` tool. They describe v0.4.0. Compared with v0.3.2 the core is a library: `src/lib.rs` runs the loop from a `Config` and a tool callback and can be used on its own, `src/shell.rs` is the default command runner and `src/main.rs` the CLI. The binary behaves exactly as before. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
+These docs go one level below the README for RestLoop, a small Rust agent loop that gives a model one `shell` tool. They describe v0.4.0. Compared with v0.3.2 the core is a library: `src/lib.rs` runs the loop from a `Config` and a tool callback and can be used on its own, `src/shell.rs` is the default command runner and `src/main.rs` the CLI. The binary behaves exactly as before. The process cleanup described in the overview is newer than v0.4.0 and not yet released. Read them in order: what RestLoop is and the first run, the exact command-line and environment interface, how the loop, the HTTP client and the command runner work and why, and finally how binaries are built and released and how to change the code.
 
 <a id="overview"></a>
 
 ## Overview
 
-RestLoop is a coding agent reduced to its loop: it sends a conversation and one tool, `shell`, to an OpenAI-compatible `/chat/completions` endpoint (or OpenAI's `/responses`), runs every command the model asks for, sends back the output, and stops when the model answers without a tool call. The core, the loop and the model client, is `src/lib.rs` and can be used as a library; `src/shell.rs` is the default command runner and `src/main.rs` the CLI. Its only dependencies are `ureq` for HTTPS and `serde_json`.
+RestLoop is a coding agent reduced to its loop: it sends a conversation and one tool, `shell`, to an OpenAI-compatible `/chat/completions` endpoint (or OpenAI's `/responses`), runs every command the model asks for, sends back the output, and stops when the model answers without a tool call. The core, the loop and the model client, is `src/lib.rs` and can be used as a library; `src/shell.rs` is the default command runner and `src/main.rs` the CLI. Its only dependencies are `ureq` for HTTPS, `serde_json` and, on Unix, `libc`.
 
 It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a daemon, a runner and an executable-skills system. Commit `33511748` replaced all of that with one file and no storage, and `cad33d13` renamed the result RestLoop and restarted versioning at 0.1.0. Most later features (a configurable step limit, the time budget, usage logging) were added in response to benchmark runs, mostly Terminal-Bench, and each is an environment variable: the time budget and usage logging stay off unless set, and the step limit defaults to 100 steps.
 
-<sub>Sources: [lib.rs:1-9](../src/lib.rs#L1-L9) · [main.rs:1-4](../src/main.rs#L1-L4) · [shell.rs:1](../src/shell.rs#L1) · [README.md:54-56](../README.md#L54-L56) · [Cargo.toml:1-11](../Cargo.toml#L1-L11) · +2</sub>
+<sub>Sources: [lib.rs:1-9](../src/lib.rs#L1-L9) · [main.rs:1-4](../src/main.rs#L1-L4) · [shell.rs:1](../src/shell.rs#L1) · [README.md:54-56](../README.md#L54-L56) · [Cargo.toml:1-15](../Cargo.toml#L1-L15) · +2</sub>
 
 ### What it deliberately leaves out
 
@@ -25,7 +25,23 @@ It exists because its predecessor, RestFlow (up to 0.5), had grown into a TUI, a
 - **No configuration file and no database.** All options are environment variables, which the CLI reads once at start (the key before every request) into the core's `Config`; RestLoop itself writes only the optional session and last-message files (see [Usage and configuration](#usage)).
 - **No sandbox and no confirmation.** Commands run with your permissions in the current directory. Isolation is the caller's job: a container or a throwaway checkout.
 
-<sub>Sources: [lib.rs:59-63](../src/lib.rs#L59-L63) · [lib.rs:170-181](../src/lib.rs#L170-L181) · [main.rs:73-106](../src/main.rs#L73-L106) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>Sources: [lib.rs:59-63](../src/lib.rs#L59-L63) · [lib.rs:170-181](../src/lib.rs#L170-L181) · [main.rs:81-114](../src/main.rs#L81-L114) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+
+### What a run leaves behind
+
+Nothing a task's commands started should outlive it. When a task ends (in stdin mode, each one), and on SIGHUP, SIGINT or SIGTERM (RestLoop then exits with 129, 130 or 143), every process group its commands started gets SIGTERM and, after about a second, SIGKILL; the task's deadline cuts that wait short. On Windows the job object is closed, which kills its processes with no graceful phase. A background server keeps running between the steps of one task.
+
+The limits:
+
+- A process that calls `setsid` or daemonizes escapes; use a container or a cgroup.
+- On Unix at most 32 groups may live at once; the next command gets an error instead of running.
+- Output past 1 MiB per command is dropped.
+- Inherited file descriptors are closed for commands; when `/dev/fd` cannot be read, only those up to 1023.
+- A process group id reused within one process is a known small gap.
+
+This is CLI setup: a library caller of `shell::shell()` calls `shell::install()` and `shell::stop_all()` itself.
+
+<sub>Sources: [main.rs:30-34](../src/main.rs#L30-L34) · [main.rs:56-57](../src/main.rs#L56-L57) · [shell.rs:56-75](../src/shell.rs#L56-L75) · [shell.rs:229-232](../src/shell.rs#L229-L232) · [shell.rs:354-360](../src/shell.rs#L354-L360) · +2</sub>
 
 ### A first result
 
@@ -40,7 +56,7 @@ restloop "make the failing test pass"
 
 For other providers set `RESTLOOP_BASE_URL` to the part before `/chat/completions`. Exit codes and every option are described in [Usage and configuration](#usage).
 
-<sub>Sources: [README.md:40-47](../README.md#L40-L47) · [README.md:52-60](../README.md#L52-L60) · [main.rs:80-81](../src/main.rs#L80-L81)</sub>
+<sub>Sources: [README.md:40-47](../README.md#L40-L47) · [README.md:52-60](../README.md#L52-L60) · [main.rs:88-89](../src/main.rs#L88-L89)</sub>
 
 <a id="usage"></a>
 
@@ -57,9 +73,9 @@ All arguments are joined with spaces into one task: `restloop fix the build` and
 - **With a task**, RestLoop runs it and exits: status 0 when the model finished, 1 when the run failed (an API error after retries, or the step limit).
 - **Without a task**, it prints `> ` on stderr and reads one task per line from stdin until end of input. Empty lines are skipped. All tasks share one conversation, so a later line can refer to earlier work. A failed task is reported on stderr and the loop continues.
 
-Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SESSION` names a file that is not a session.
+Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SESSION` names a file that is not a session. On Unix, SIGHUP, SIGINT and SIGTERM give 129, 130 and 143 ([Overview](#overview)).
 
-<sub>Sources: [main.rs:17-36](../src/main.rs#L17-L36) · [main.rs:56-70](../src/main.rs#L56-L70)</sub>
+<sub>Sources: [main.rs:17-36](../src/main.rs#L17-L36) · [main.rs:64-78](../src/main.rs#L64-L78) · [shell.rs:390-394](../src/shell.rs#L390-L394)</sub>
 
 ### Environment variables
 
@@ -80,13 +96,13 @@ Status 2 means the run never started: `RESTLOOP_MODEL` is unset, or `RESTLOOP_SE
 
 Numbers that do not parse as an unsigned integer silently fall back to the default (`env_num`). `RESTLOOP_LOG_USAGE` must be exactly `1`; empty strings count as unset for the key file and the effort.
 
-<sub>Sources: [main.rs:12-15](../src/main.rs#L12-L15) · [main.rs:73-106](../src/main.rs#L73-L106) · [main.rs:147-160](../src/main.rs#L147-L160) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
+<sub>Sources: [main.rs:12-15](../src/main.rs#L12-L15) · [main.rs:81-114](../src/main.rs#L81-L114) · [main.rs:155-168](../src/main.rs#L155-L168) · [commit f09603f4](https://github.com/lhwzds/restloop/commit/f09603f4)</sub>
 
 ### What commands inherit
 
 Restloop's own settings are no longer passed in commands' environment: every `RESTLOOP_*` name is removed before a command starts (`restloop_var`), so the key, the key file and the URL do not reach it; on Windows the match ignores case. Commands inherit everything else, including any copy of the key under another name. A command running as the same user can still reach restloop's environment (`/proc/$PPID/environ`, `ps -E`) or read the key file if it knows the path; a sandbox or another user is the real fix.
 
-<sub>Sources: [shell.rs:13-26](../src/shell.rs#L13-L26) · [shell.rs:66-71](../src/shell.rs#L66-L71) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
+<sub>Sources: [shell.rs:29-42](../src/shell.rs#L29-L42) · [shell.rs:130-135](../src/shell.rs#L130-L135) · [commit 8d5e3a78](https://github.com/lhwzds/restloop/commit/8d5e3a78)</sub>
 
 ### What goes to stdout and stderr
 
@@ -120,13 +136,13 @@ With `RESTLOOP_LAST_MESSAGE=<path>`, each task first deletes that file, then, wh
 
 Run again with the same path to resume; copy the file first to fork. The saved system prompt is reused unchanged. With `RESTLOOP_DEADLINE`, a resumed task gets `[You have Ns in total for this request; the time used in tool results counts from now.]` appended. The file is replaced after every step through a `<path>.<pid>.tmp` rename, so after a kill it holds the last complete step. Concurrent runs never corrupt it, but the last writer wins.
 
-<sub>Sources: [main.rs:37-47](../src/main.rs#L37-L47) · [main.rs:108-131](../src/main.rs#L108-L131) · [lib.rs:154-168](../src/lib.rs#L154-L168) · [README.md:83-100](../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
+<sub>Sources: [main.rs:42-52](../src/main.rs#L42-L52) · [main.rs:116-139](../src/main.rs#L116-L139) · [lib.rs:154-168](../src/lib.rs#L154-L168) · [README.md:83-100](../README.md#L83-L100) · [commit ffd11c37](https://github.com/lhwzds/restloop/commit/ffd11c37) · +1</sub>
 
 <a id="how-it-works"></a>
 
 ## How it works
 
-Everything happens in `run()` in `src/lib.rs`: one iteration (a step) is one model reply plus the commands it requested.
+`run()` in `src/lib.rs` does everything: a step is one model reply plus the commands it requested.
 
 ```mermaid
 flowchart TD
@@ -170,7 +186,7 @@ With `RESTLOOP_WIRE_API=responses`, `complete()` posts to `/responses`. The conv
 
 Since `21f3c1dc`, `too_long()` recognises a context overflow: an HTTP 400 or 413, or a Responses stream failure (`no reply: `), whose text contains a provider phrase (`context_length_exceeded`, "maximum context length", "context window exceeds", "prompt is too long", "exceeds the available context size"). `04004c68` dropped looser words like "too long" after an overlong `tool_call_id` triggered history cuts.
 
-On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` messages not yet shortened to their first line plus `[output removed to fit the context window]`, empties old reasoning with `trim_thinking()`, and the request is retried. Each retry halves the rest; when nothing changes, the error is returned. Commands and visible replies stay, so the model knows what it did.
+On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` messages not yet shortened to their first line plus `[output removed to fit the context window]`, empties old reasoning with `trim_thinking()`, and the request is retried. Each retry halves the rest; when nothing changes, the error is returned. Commands and visible replies stay.
 
 <sub>Sources: [lib.rs:69-80](../src/lib.rs#L69-L80) · [lib.rs:214-250](../src/lib.rs#L214-L250) · [commit 21f3c1dc](https://github.com/lhwzds/restloop/commit/21f3c1dc) · [commit 04004c68](https://github.com/lhwzds/restloop/commit/04004c68)</sub>
 
@@ -186,26 +202,26 @@ On a match, `drop_old_output()` cuts the older half (rounded up) of the `tool` m
 
 1. A new conversation's system prompt ends with `You have Ns in total for this task; each tool result ends with the time used so far.`; a resumed session's new task, a similar sentence ([Usage and configuration](#usage)).
 2. Each command's tool result ends with `[time used: Ns of Ds]`.
-3. A command's timeout is the smaller of `RESTLOOP_TIMEOUT` and the time left (floored at 1 s).
+3. A command's timeout is the smaller of `RESTLOOP_TIMEOUT` and the time left (floored at 1 s); the CLI starts none after it.
 4. A model request gets the time left after the key is read (600 s at most); none starts after it: `restloop: deadline of <N>s reached`. A retry sleep reaching it stops with `deadline of <N>s reached (<what>: <text>)`; a failed fifth attempt only if the deadline has passed (`a4ba4994`).
 
 Time counts from process start: in stdin mode one budget covers all tasks.
 
-<sub>Sources: [lib.rs:173-181](../src/lib.rs#L173-L181) · [main.rs:38-46](../src/main.rs#L38-L46) · [lib.rs:124-129](../src/lib.rs#L124-L129) · [lib.rs:135-140](../src/lib.rs#L135-L140) · [lib.rs:304-320](../src/lib.rs#L304-L320) · +3</sub>
+<sub>Sources: [lib.rs:173-181](../src/lib.rs#L173-L181) · [main.rs:43-51](../src/main.rs#L43-L51) · [lib.rs:124-129](../src/lib.rs#L124-L129) · [lib.rs:135-140](../src/lib.rs#L135-L140) · [lib.rs:304-320](../src/lib.rs#L304-L320) · +4</sub>
 
 ### Running a command
 
 `run()` takes the runner as a callback; the CLI passes the public `shell::shell()`, which runs each command in a fresh shell in the current directory: `sh -c` on Unix; on Windows, `Git\bin\bash.exe` under `ProgramFiles` or `ProgramFiles(x86)` if present (models write bash; PowerShell 5.1 adds a BOM), else `powershell -NoProfile -NonInteractive` with UTF-8 output. stdin is null and `GIT_TERMINAL_PROMPT=0`, so nothing waits for input; `PYTHONUTF8=1` keeps Python I/O in UTF-8.
 
-After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is killed, and `exit:` still reports the shell's code. A background service survives if it redirects its output (`server > log 2>&1 &`). On Unix a child that left the group survives a timeout. On Unix the kill signals the group directly; Windows uses `TerminateJobObject`. Inherited variables: [Usage and configuration](#usage).
+After the shell exits, processes holding its pipes get up to 2 s more, never past the timeout; then the whole process group (a job object on Windows) is stopped, and `exit:` still reports the shell's code. On Unix a stop is SIGTERM, up to 1 s, then SIGKILL; Windows uses `TerminateJobObject`. A background service that redirects its output (`server > log 2>&1 &`) lives until the task ends: [Overview](#overview). Inherited variables: [Usage and configuration](#usage).
 
-<sub>Sources: [shell.rs:28-125](../src/shell.rs#L28-L125) · [main.rs:48-50](../src/main.rs#L48-L50) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>Sources: [shell.rs:44-54](../src/shell.rs#L44-L54) · [shell.rs:101-206](../src/shell.rs#L101-L206) · [shell.rs:279-332](../src/shell.rs#L279-L332) · [main.rs:53-55](../src/main.rs#L53-L55) · [commit 92c09fd2](https://github.com/lhwzds/restloop/commit/92c09fd2) · +1</sub>
 
 ### What the model sees from a command
 
-A command's tool result is `exit: <status>` on the first line, then the combined output. Except: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Invalid UTF-8 is replaced.
+A command's tool result is `exit: <status>` on the first line, then the combined output. Except: invalid arguments give `error: arguments must be JSON…`, a shell that cannot start gives `error: <reason>`. The status is the exit code, `killed` when a signal ended the shell, or `timeout after Ns`. Output over 10,000 characters (`MAX_OUTPUT`) keeps the first and last 5,000 with `... [N chars truncated] ...` between. Output past 1 MiB is dropped first. Invalid UTF-8 is replaced.
 
-<sub>Sources: [shell.rs:72-75](../src/shell.rs#L72-L75) · [shell.rs:123-138](../src/shell.rs#L123-L138) · [lib.rs:143-145](../src/lib.rs#L143-L145)</sub>
+<sub>Sources: [shell.rs:14-16](../src/shell.rs#L14-L16) · [shell.rs:136-139](../src/shell.rs#L136-L139) · [shell.rs:199-219](../src/shell.rs#L199-L219) · [lib.rs:143-145](../src/lib.rs#L143-L145)</sub>
 
 <a id="contributing"></a>
 
@@ -213,17 +229,17 @@ A command's tool result is `exit: <status>` on the first line, then the combined
 
 `cargo build --release` produces `target/release/restloop`. The crate uses edition 2024 and `let` chains inside `if`, so it needs a toolchain where both are stable (Rust 1.88 or newer). The release profile optimises for size (`opt-level = "z"`, LTO, one codegen unit, `panic = "abort"`, stripped).
 
-The core's and the runner's tests live in `src/tests.rs`, the CLI's (settings, key file, session file) in `src/main.rs`; all run with `cargo test`. `.github/workflows/ci.yml` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and the tests on macOS, Linux and Windows for every push to `main` and every pull request. Run the same three commands before opening one. A `docs` job on Linux checks out the full history (`fetch-depth: 0`, so cited commits resolve), installs Codocia 0.2 and runs `codocia check`, so stale docs or `README_CN.md` fail CI.
+The core's and the runner's tests live in `src/tests.rs`, the CLI's (settings, key file, session file) in `src/main.rs`; all run with `cargo test`. `.github/workflows/ci.yml` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and the tests on macOS, Linux and Windows for every push to `main` and every pull request; on Unix it also runs `tests/cleanup.rs` in release. Run the same three commands before opening one. A `docs` job on Linux checks out the full history (`fetch-depth: 0`, so cited commits resolve), installs Codocia 0.2 and runs `codocia check`, so stale docs or `README_CN.md` fail CI.
 
-<sub>Sources: [Cargo.toml:1-18](../Cargo.toml#L1-L18) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [main.rs:162-163](../src/main.rs#L162-L163) · [ci.yml:1-34](../.github/workflows/ci.yml#L1-L34)</sub>
+<sub>Sources: [Cargo.toml:1-22](../Cargo.toml#L1-L22) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [main.rs:170-171](../src/main.rs#L170-L171) · [ci.yml:1-37](../.github/workflows/ci.yml#L1-L37)</sub>
 
 ### What the tests cover
 
-Unit tests in `src/tests.rs` pin: `too_long()` accepts recorded provider wordings and rejects near misses; `drop_old_output()` halves until it returns 0; `trim_thinking()` spares the last two replies, empties `reasoning_content` and drops only `reasoning` items of `output_items`; `truncate()` keeps head and tail. `shell()` tests: the exit line with both streams, a timeout kill, a background `sleep 30 &` not blocking.
+Unit tests in `src/tests.rs` pin: `too_long()` accepts recorded provider wordings and rejects near misses; `drop_old_output()` halves until it returns 0; `trim_thinking()` spares the last two replies; `truncate()` keeps head and tail. `shell()` tests: the exit line with both streams, a timeout kill, a background `sleep 30 &` not blocking.
 
-One end-to-end test drives `run()` against `serve()`, a local canned-reply server: a tool call, overflow recovery, a session resume, retried empty replies or replies without `choices`; over the Responses API, output items sent back in order, retried and fatal failures; under a deadline, hangs, 500s and empty replies stop early with `deadline of`. It alone sets restloop's settings and checks commands get none. Tests that use the environment hold one lock, tests that send requests clear `*_PROXY`, and changed variables are put back. Other core tests use a recording tool and check that a passed deadline runs no command and a failing key ends the run at once. The CLI's tests in `src/main.rs` cover `config()`, the key file and session files.
+One end-to-end test drives `run()` against `serve()`, a canned-reply server: a tool call, overflow recovery, a session resume, retried empty replies or replies without `choices`; over the Responses API, output items sent back in order, retried and fatal failures; under a deadline, hangs, 500s and empty replies stop early with `deadline of`. It alone sets restloop's settings and checks commands get none. Tests that use the environment hold one lock, tests that send requests clear `*_PROXY`, and changed variables are put back. Other core tests use a recording tool and check that a passed deadline runs no command and a failing key ends the run at once. The CLI's tests in `src/main.rs` cover `config()`, the key file and session files; `tests/cleanup.rs` (Unix) runs the binary and checks no process outlives a run.
 
-<sub>Sources: [tests.rs:167-310](../src/tests.rs#L167-L310) · [tests.rs:30-96](../src/tests.rs#L30-L96) · [tests.rs:443-468](../src/tests.rs#L443-L468) · [tests.rs:832-908](../src/tests.rs#L832-L908) · [tests.rs:930-1077](../src/tests.rs#L930-L1077) · +4</sub>
+<sub>Sources: [tests.rs:167-310](../src/tests.rs#L167-L310) · [tests.rs:30-96](../src/tests.rs#L30-L96) · [tests.rs:443-468](../src/tests.rs#L443-L468) · [tests.rs:832-908](../src/tests.rs#L832-L908) · [tests.rs:930-1077](../src/tests.rs#L930-L1077) · +6</sub>
 
 ### Changing the loop
 
@@ -232,9 +248,9 @@ Conventions the history suggests:
 - **Options are environment variables with the old behaviour as default.** The CLI reads them in `config()` into a `Config` field; read numbers with `env_num` so an invalid value falls back to the default, and add the variable to the `--help` text in `main()` and to the README.
 - **Keep the model-facing surface fixed** (see [Overview](#overview)). Changes to `system_prompt()` or the tool schema should come with benchmark evidence.
 - **Keep the prompt prefix stable.** Anything that rewrites earlier messages breaks provider prompt caching; RestLoop does it only when the provider reports an overflow. A threshold-based trim was removed after an A/B showed no benefit (`f09603f4`).
-- **Keep the core's settings in `Config`, with two dependencies.** `src/lib.rs` makes no direct environment reads (its HTTP client, `ureq`, honours `*_PROXY`) and starts no process; that belongs to the CLI (`src/main.rs`) and the default command runner, the public module `src/shell.rs`. Its size and readability are the point.
+- **Keep the core's settings in `Config`, with few dependencies.** `src/lib.rs` makes no direct environment reads (its HTTP client, `ureq`, honours `*_PROXY`) and starts no process; that belongs to the CLI (`src/main.rs`) and the default command runner, the public module `src/shell.rs`. Its size and readability are the point.
 
-<sub>Sources: [lib.rs:1-9](../src/lib.rs#L1-L9) · [main.rs:157-160](../src/main.rs#L157-L160) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
+<sub>Sources: [lib.rs:1-9](../src/lib.rs#L1-L9) · [main.rs:165-168](../src/main.rs#L165-L168) · [tests.rs:1-2](../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 
 ### How a release is made
 
@@ -265,19 +281,21 @@ The stamped `package.json` and `checksums.json` exist only on the runner and are
 
 Generated by Codocia from the code on every build: areas, each area's own description, import dependencies between areas, and the pages that explain them.
 
-In scope: 14 files, 2,925 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
+In scope: 15 files, 3,909 lines; excluded `Cargo.lock`, `LICENSE`, `.gitignore`
 
 ### Files
 
 **Repository root**
 
-- (root files) — 296 lines, 3 files. A minimal agent loop: one model, one shell tool.\
+- (root files) — 326 lines, 3 files. A minimal agent loop: one model, one shell tool.\
   Explained in: [Overview](#overview) (2), [Usage and configuration](#usage) (1), [Building, releasing and contributing](#contributing) (1)
-- `.github/` — 198 lines, 2 files\
+- `.github/` — 201 lines, 2 files\
   Explained in: [Building, releasing and contributing](#contributing) (3)
-- `src/` — 2,269 lines, 4 files. RestLoop's core: the agent loop and the model client.\
-  Hub files: `lib.rs` `shell.rs` `tests.rs`\
-  Explained in: [Overview](#overview) (3), [Usage and configuration](#usage) (7), [How it works](#how-it-works) (9), [Building, releasing and contributing](#contributing) (3)
+- `src/` — 2,663 lines, 4 files. RestLoop's core: the agent loop and the model client.\
+  Hub files: `shell.rs` `lib.rs` `tests.rs`\
+  Explained in: [Overview](#overview) (4), [Usage and configuration](#usage) (7), [How it works](#how-it-works) (9), [Building, releasing and contributing](#contributing) (3)
+- `tests/` — 557 lines, 1 file\
+  Explained in: [Building, releasing and contributing](#contributing) (1)
 
 **`npm/`**
 

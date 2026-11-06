@@ -7,7 +7,7 @@ evidence:
   - src/lib.rs:122-123 #517656552f29
   - src/lib.rs:130-134 #ef2b850ba233
   - src/lib.rs:397-398 #ef5644d396bb
-  - src/main.rs:60-64 #9627391266f6
+  - src/main.rs:68-72 #9627391266f6
 ---
 
 stdout carries only the model's text: every non-empty reply is printed, trimmed, including the short comments a model writes alongside tool calls. There is no separator between steps, so a script that needs only the final answer should use `RESTLOOP_LAST_MESSAGE`.

@@ -6,7 +6,7 @@ evidence:
   - src/lib.rs:147-151 #b5594b99cac4
 ---
 
-Everything happens in `run()` in `src/lib.rs`: one iteration (a step) is one model reply plus the commands it requested.
+`run()` in `src/lib.rs` does everything: a step is one model reply plus the commands it requested.
 
 ```mermaid
 flowchart TD
