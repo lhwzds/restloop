@@ -3,7 +3,7 @@
 English | [中文](README_CN.md)
 
 A minimal coding-agent loop: it keeps working on your task so you can rest.
-About 860 lines of Rust, tests aside — about 520 of them the core in `src/lib.rs`, the
+About 1260 lines of Rust, tests aside — about 520 of them the core in `src/lib.rs`, the
 rest the CLI and the default command runner — packaged as a ~1.5 MB binary.
 
 The core is `src/lib.rs`: the agent loop and the model client. It makes no direct
@@ -33,8 +33,8 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 | | |
 |---|---|
 | Source | `src/lib.rs` (the core), `src/shell.rs` (the default command runner, a public module), `src/main.rs` (the CLI) |
-| Tests | `src/tests.rs`; CI runs them on macOS, Linux and Windows |
-| Dependencies | `ureq` (HTTPS), `serde_json` |
+| Tests | `src/tests.rs`, `tests/cleanup.rs` (Unix); CI runs them on macOS, Linux and Windows |
+| Dependencies | `ureq` (HTTPS), `serde_json`, `libc` (Unix) |
 | Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |
 | Storage | none by default: no database, no config file; files only when `RESTLOOP_SESSION` or `RESTLOOP_LAST_MESSAGE` is set |
 
@@ -105,11 +105,26 @@ not sign in or refresh tokens itself.
 2. Run each requested command with no stdin, in a fresh shell in the current
    directory: `sh` on macOS/Linux; on Windows Git Bash when it is installed,
    otherwise PowerShell. A command's process group (its job on Windows) is killed
-   after 120 s (`RESTLOOP_TIMEOUT` changes this, e.g. for long builds); on Unix a child
+   after 120 s (`RESTLOOP_TIMEOUT` changes this, e.g. for long builds); a child
    that left the group survives. Send back the
    exit code and output (truncated to 10,000 characters).
 3. Repeat until the model replies without a tool call, or after 100 steps
    (`RESTLOOP_MAX_STEPS`).
+
+At the end of a run, and on SIGHUP, SIGINT or SIGTERM (RestLoop then exits with
+129, 130 or 143), every process group its commands started gets SIGTERM and then,
+after about a second, SIGKILL; the wait is cut short by the task's deadline. On
+Windows the job object is closed, which kills its processes without a graceful
+phase. A server a command started in the background keeps running between the steps
+of one run.
+
+The limits:
+- a process that calls setsid or daemonizes escapes (use a container or a cgroup);
+- at most 32 groups may live at once, and the next command is refused;
+- output past 1 MiB per command is dropped;
+- when `/dev/fd` cannot be read, only the file descriptors up to
+  1023 are closed;
+- a process group id that is reused within one run is a known small gap.
 
 A request that fails with 429, 5xx, a network error or an HTTP 200 without a reply is tried up
 to 5 times in all, unless the error says the credits or plan limit are used up. An empty reply

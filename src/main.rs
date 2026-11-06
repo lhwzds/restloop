@@ -7,7 +7,7 @@ use restloop::Config;
 use serde_json::{Value, json};
 use std::env;
 use std::io::BufRead;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// The steps a task may take before the loop stops.
 const MAX_STEPS: u64 = 100;
@@ -27,6 +27,11 @@ fn main() {
         eprintln!("restloop: set RESTLOOP_MODEL (see --help)");
         std::process::exit(2);
     };
+    // The commands of the run must not outlive its deadline.
+    let limit = cfg
+        .deadline
+        .and_then(|d| cfg.start.checked_add(Duration::from_secs(d)));
+    restloop::shell::install(limit);
     let mut messages = match conversation(&cfg) {
         Ok(m) => m,
         Err(e) => {
@@ -45,9 +50,12 @@ fn main() {
             _ => text.to_string(),
         };
         messages.push(json!({"role": "user", "content": text}));
-        if let Err(e) = restloop::run(&cfg, messages, &mut |cmd, secs| {
+        let run = restloop::run(&cfg, messages, &mut |cmd, secs| {
             restloop::shell::shell(cmd, secs)
-        }) {
+        });
+        // Nothing a run started may keep running after the run is over.
+        restloop::shell::stop_all();
+        if let Err(e) = run {
             eprintln!("restloop: {e}");
             return false;
         }

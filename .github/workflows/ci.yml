@@ -23,6 +23,9 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - name: The cleanup tests in release (Unix)
+        if: runner.os != 'Windows'
+        run: cargo test --release --test cleanup
 
   docs:
     runs-on: ubuntu-latest
