@@ -149,6 +149,7 @@ fn test_config() -> Config {
         log_usage: false,
         last_message: None,
         session: None,
+        headers: Vec::new(),
     }
 }
 
@@ -311,7 +312,7 @@ fn shell_does_not_wait_for_a_background_child_holding_the_output() {
 
 /// Answers requests on a local port with `replies` in order (a JSON string is sent as
 /// it is, as an event stream) and keeps each request body, with its Authorization
-/// header under "auth".
+/// header under "auth" and its x-test header under "x-test".
 fn serve(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>) {
     let (url, bodies, _ended) = serve_until(replies);
     (url, bodies)
@@ -334,24 +335,32 @@ fn serve_until(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>, m
                 break; // no request came: the thread ends instead of waiting.
             };
             let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let (mut len, mut auth) = (0, String::new());
+            let (mut len, mut auth, mut test) = (0, String::new(), String::new());
             loop {
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
                 if line.trim().is_empty() {
                     break;
                 }
-                if let Some(v) = line.to_lowercase().strip_prefix("content-length:") {
-                    len = v.trim().parse().unwrap();
-                }
-                if let Some(v) = line.to_lowercase().strip_prefix("authorization:") {
-                    auth = v.trim().to_string();
+                // The name of the header is matched in lower case, the value is
+                // kept as it was sent, without the spaces and line end around it
+                // (trimmed below).
+                let Some((name, value)) = line.split_once(':') else {
+                    continue;
+                };
+                let value = value.trim().to_string();
+                match name.trim().to_lowercase().as_str() {
+                    "content-length" => len = value.parse().unwrap(),
+                    "authorization" => auth = value,
+                    "x-test" => test = value,
+                    _ => {}
                 }
             }
             let mut body = vec![0; len];
             reader.read_exact(&mut body).unwrap();
             let mut body: Value = serde_json::from_slice(&body).unwrap();
             body["auth"] = json!(auth);
+            body["x-test"] = json!(test);
             seen.lock().unwrap().push(body);
             // Status 0 stalls before headers; status 1 stalls after 200 headers.
             if status == 0 || status == 1 {
@@ -365,12 +374,18 @@ fn serve_until(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>, m
                 thread::sleep(Duration::from_secs(10));
                 continue;
             }
+            // A redirect names its target in Location: the body of the reply, a
+            // JSON string, as it is.
+            let location = match (300..=399).contains(&status) {
+                true => format!("Location: {}\r\n", reply.as_str().unwrap_or("")),
+                false => String::new(),
+            };
             let (kind, text) = match reply {
                 Value::String(s) => ("text/event-stream", s),
                 r => ("application/json", r.to_string()),
             };
             let head = format!(
-                "HTTP/1.1 {status} X\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 {status} X\r\nContent-Type: {kind}\r\nContent-Length: {}\r\n{location}Connection: close\r\n\r\n",
                 text.len()
             );
             stream.write_all((head + &text).as_bytes()).unwrap();
@@ -590,7 +605,7 @@ fn a_run_survives_a_full_context_and_resumes_from_its_session() {
     run_loop(&cfg, &mut m).unwrap();
     let sent = bodies.lock().unwrap().clone();
     assert_eq!(sent.len(), 5);
-    assert_eq!(sent[0]["auth"], "bearer tok1");
+    assert_eq!(sent[0]["auth"], "Bearer tok1");
     assert_eq!(sent[0]["instructions"], "be brief");
     assert_eq!(
         sent[0]["input"],
@@ -956,6 +971,102 @@ fn the_core_runs_with_a_tool_of_its_own() {
     assert_eq!(messages[2]["content"], "exit: 0\nfixed output");
     assert_eq!(messages[3]["content"], "all done");
     assert_eq!(bodies.lock().unwrap().len(), 2);
+}
+
+/// The headers of the settings go with every request of the model.
+#[test]
+fn the_extra_headers_go_with_the_request() {
+    // The core builds a ureq agent, which reads the proxy settings of the
+    // environment: this test holds the shared env lock for its whole body, and
+    // the proxy settings of the host are removed, so the requests of the run
+    // reach the local server and not a proxy.
+    let _env = env_lock();
+    let _proxy = remove_proxy_vars();
+    let call = json!({"choices": [{"message": {"role": "assistant", "content": "",
+        "tool_calls": [{"id": "a", "type": "function", "function": {"name": "shell",
+            "arguments": "{\"command\":\"echo hi\"}"}}]}}]});
+    let done = json!({"choices": [{"message": {"role": "assistant", "content": "all done"}}]});
+    let (url, bodies, ended) = serve_until(vec![(200, call), (200, done)]);
+    // The server waits for a request that the run may never make: the guard wakes
+    // it when the test ends, so a failed assertion cannot leave its thread waiting.
+    let _wake = WakeOnEnd::new(&url);
+    let mut cfg = test_config();
+    cfg.base_url = url;
+    cfg.headers = vec![("x-test".into(), "V1-Mixed".into())];
+    let mut commands: Vec<String> = Vec::new();
+    let mut messages = vec![json!({"role": "user", "content": "go"})];
+    run(&cfg, &mut messages, &mut |cmd, _secs| {
+        commands.push(cmd.to_string());
+        "exit: 0\nfixed output".to_string()
+    })
+    .unwrap();
+    assert_eq!(commands, ["echo hi"]);
+    let sent = bodies.lock().unwrap().clone();
+    assert_eq!(sent.len(), 2);
+    // The value of the header goes as it was written with every request, and the
+    // key of the request is still there beside it.
+    for body in &sent {
+        assert_eq!(body["x-test"], "V1-Mixed");
+        assert_eq!(body["auth"], "Bearer k");
+    }
+    // Its thread is not left waiting for a request that never comes: the guard
+    // wakes it, whether the test ends well or fails.
+    drop(_wake);
+    assert!(
+        ended.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "the server thread is still waiting for a request"
+    );
+}
+
+/// A header the config cannot carry ends the run before anything else: no file is
+/// removed and no command runs.
+#[test]
+fn a_bad_header_in_the_config_ends_the_run_first() {
+    let dir = TempDir::new("bad-header");
+    let path = dir.path("last.txt");
+    std::fs::write(&path, "the old reply\n").unwrap();
+    let mut cfg = test_config();
+    cfg.headers = vec![("x-a".into(), "a\rb".into())];
+    cfg.last_message = Some(path.to_string_lossy().into_owned());
+    let mut ran = false;
+    let mut messages = vec![json!({"role": "user", "content": "go"})];
+    let e = run(&cfg, &mut messages, &mut |_, _| {
+        ran = true;
+        "exit: 0\nfixed output".to_string()
+    })
+    .unwrap_err();
+    assert_eq!(e, "header 1 of the config is not a valid header");
+    assert!(path.exists());
+    assert!(!ran);
+}
+
+/// A redirect is not followed: the extra headers must not go to another host.
+#[test]
+fn a_redirect_is_not_followed() {
+    // The core builds a ureq agent, which reads the proxy settings of the
+    // environment: this test holds the shared env lock for its whole body, and
+    // the proxy settings of the host are removed, so the requests of the run
+    // reach the local server and not a proxy.
+    let _env = env_lock();
+    let _proxy = remove_proxy_vars();
+    let done = json!({"choices": [{"message": {"role": "assistant", "content": "all done"}}]});
+    // B would answer the request the redirect points at: it must get none.
+    let (b_url, b_bodies, ended) = serve_until(vec![(200, done)]);
+    let _wake = WakeOnEnd::new(&b_url);
+    let (a_url, _a_bodies) = serve(vec![(302, json!(format!("{b_url}/chat/completions")))]);
+    let mut cfg = test_config();
+    cfg.base_url = a_url;
+    let mut messages = vec![json!({"role": "user", "content": "go"})];
+    let e = run_loop(&cfg, &mut messages).unwrap_err();
+    assert!(e.starts_with("HTTP 302"), "{e}");
+    assert_eq!(b_bodies.lock().unwrap().len(), 0);
+    // Its thread is not left waiting for a request that never comes: the guard
+    // wakes it, whether the test ends well or fails.
+    drop(_wake);
+    assert!(
+        ended.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "the server thread is still waiting for a request"
+    );
 }
 
 /// A task whose time is up stops at once: no command runs, and the run says why.

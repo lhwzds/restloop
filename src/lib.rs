@@ -44,6 +44,31 @@ pub struct Config {
     pub last_message: Option<String>,
     /// The file the conversation is saved in and continued from.
     pub session: Option<String>,
+    /// Extra HTTP headers sent with every model request.
+    pub headers: Vec<(String, String)>,
+}
+
+/// Why a header cannot go with a request, or None if it can: a name or value
+/// HTTP cannot carry, or a name RestLoop sets itself. Never holds the value.
+pub fn bad_header(name: &str, value: &str) -> Option<String> {
+    if ureq::http::HeaderName::from_bytes(name.as_bytes()).is_err()
+        || ureq::http::HeaderValue::from_str(value).is_err()
+    {
+        return Some("is not a valid header".into());
+    }
+    if [
+        "authorization",
+        "content-type",
+        "content-length",
+        "host",
+        "transfer-encoding",
+    ]
+    .iter()
+    .any(|h| name.eq_ignore_ascii_case(h))
+    {
+        return Some(format!("sets {name}, which restloop sets itself"));
+    }
+    None
 }
 
 /// The agent loop: send the conversation to the model, run the commands it asks for
@@ -56,6 +81,12 @@ pub fn run(
     messages: &mut Vec<Value>,
     tool: &mut dyn FnMut(&str, u64) -> String,
 ) -> Result<(), String> {
+    // A header the config cannot carry ends the run before anything else happens.
+    for (n, (name, value)) in cfg.headers.iter().enumerate() {
+        if let Some(reason) = bad_header(name, value) {
+            return Err(format!("header {} of the config {reason}", n + 1));
+        }
+    }
     let tools = json!([{"type": "function", "function": {
         "name": "shell",
         "description": "Run a shell command and return its exit code and output.",
@@ -299,6 +330,8 @@ fn complete(cfg: &Config, body: &Value) -> Result<Value, Failure> {
     let url = format!("{}/{path}", base.trim_end_matches('/'));
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
+        // A redirect would carry the extra headers to another host.
+        .max_redirects(0)
         .build()
         .into();
     for attempt in 0..5 {
@@ -318,13 +351,18 @@ fn complete(cfg: &Config, body: &Value) -> Result<Value, Failure> {
                 limit.unwrap()
             )));
         }
-        let resp = agent
+        let mut request = agent
             .post(&url)
             .config()
             .timeout_global(Some(left))
             .build()
-            .header("Authorization", &format!("Bearer {}", key.trim()))
-            .send_json(&body);
+            .header("Authorization", &format!("Bearer {}", key.trim()));
+        // The headers of the caller go with every request: some models ask for
+        // more than the key (a session id, a version).
+        for (name, value) in &cfg.headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        let resp = request.send_json(&body);
         let (status, text) = match resp {
             Ok(mut r) if r.status() == 200 && responses => {
                 match responses_reply(std::io::BufReader::new(r.body_mut().as_reader())) {

@@ -19,9 +19,21 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_API_KEY_FILE (file holding the key, read for every request),\n     RESTLOOP_WIRE_API=responses (use /responses instead of /chat/completions),\n     RESTLOOP_REASONING_EFFORT (e.g. low, medium, high),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage of each model reply on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
+            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_API_KEY_FILE (file holding the key, read for every request),\n     RESTLOOP_WIRE_API=responses (use /responses instead of /chat/completions),\n     RESTLOOP_REASONING_EFFORT (e.g. low, medium, high),\n     RESTLOOP_HEADERS (extra request headers, one \"Name: value\" per line; not Authorization, Content-Type, Content-Length, Host or Transfer-Encoding),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage of each model reply on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
         );
         return;
+    }
+    let headers_text = match env::var("RESTLOOP_HEADERS") {
+        Ok(text) => text,
+        Err(env::VarError::NotPresent) => String::new(),
+        Err(env::VarError::NotUnicode(_)) => {
+            eprintln!("restloop: RESTLOOP_HEADERS is not valid UTF-8");
+            std::process::exit(2);
+        }
+    };
+    if let Err(e) = headers(&headers_text) {
+        eprintln!("restloop: {e}");
+        std::process::exit(2);
     }
     let Some(cfg) = config(|k| env::var(k).ok(), start) else {
         eprintln!("restloop: set RESTLOOP_MODEL (see --help)");
@@ -98,6 +110,8 @@ fn config(
     Some(Config {
         model,
         base_url,
+        // The extra headers of the caller go with every request.
+        headers: headers(&get("RESTLOOP_HEADERS").unwrap_or_default()).unwrap_or_default(),
         // The key is read for every request, so it stays a closure of its own: it
         // holds the getter and nothing else.
         key: Box::new(move || key(&get)),
@@ -160,6 +174,30 @@ fn key(get: impl Fn(&str) -> Option<String>) -> Result<String, String> {
         }
         _ => Ok(get("RESTLOOP_API_KEY").unwrap_or_default()),
     }
+}
+
+/// The headers of RESTLOOP_HEADERS: one `Name: value` per line, blank lines skipped.
+/// A line without ':' is an error naming its number, never its text (it may hold a secret).
+/// A name or a value a request cannot carry is an error too, naming its line.
+fn headers(text: &str) -> Result<Vec<(String, String)>, String> {
+    let mut out = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Some((name, value)) = line.split_once(':') else {
+            return Err(format!("RESTLOOP_HEADERS: line {} has no ':'", n + 1));
+        };
+        let name = name.trim();
+        let value = value.trim();
+        // The pair must be a header the core can send, and not one the core sets
+        // itself: the error names the line, never its text.
+        if let Some(reason) = restloop::bad_header(name, value) {
+            return Err(format!("RESTLOOP_HEADERS: line {} {reason}", n + 1));
+        }
+        out.push((name.to_string(), value.to_string()));
+    }
+    Ok(out)
 }
 
 /// A number from the environment, or the default when unset or invalid.
@@ -338,6 +376,7 @@ mod tests {
                 ("RESTLOOP_LOG_USAGE", "1"),
                 ("RESTLOOP_LAST_MESSAGE", "last.txt"),
                 ("RESTLOOP_SESSION", "session.json"),
+                ("RESTLOOP_HEADERS", "X-A: 1\nX-B: 2"),
             ]),
             Instant::now(),
         )
@@ -351,6 +390,62 @@ mod tests {
         assert!(cfg.log_usage);
         assert_eq!(cfg.last_message.as_deref(), Some("last.txt"));
         assert_eq!(cfg.session.as_deref(), Some("session.json"));
+        assert_eq!(
+            cfg.headers,
+            [
+                ("X-A".to_string(), "1".to_string()),
+                ("X-B".to_string(), "2".to_string())
+            ]
+        );
+    }
+
+    /// The headers of RESTLOOP_HEADERS: one "Name: value" per line, blank lines
+    /// skipped.
+    #[test]
+    fn the_headers_are_read_from_the_setting() {
+        assert_eq!(
+            headers("A: 1\n\n B :x:y \n").unwrap(),
+            [
+                ("A".to_string(), "1".to_string()),
+                ("B".to_string(), "x:y".to_string())
+            ]
+        );
+        // A line without a ':' is an error that names the line, never its text:
+        // the text may hold a secret.
+        let e = headers("A: 1\nsecret").unwrap_err();
+        assert_eq!(e, "RESTLOOP_HEADERS: line 2 has no ':'");
+        assert!(!e.contains("secret"));
+        let e = headers("A: 1\r\n\r\nsecret").unwrap_err();
+        assert_eq!(e, "RESTLOOP_HEADERS: line 3 has no ':'");
+        assert!(!e.contains("secret"));
+        assert_eq!(
+            headers("A: 1\r\nB: 2\r\n").unwrap(),
+            [
+                ("A".to_string(), "1".to_string()),
+                ("B".to_string(), "2".to_string())
+            ]
+        );
+        // A name or a value a request cannot carry is an error too, naming the
+        // line and never its text.
+        for bad in ["Bad Name: x", ": x", "A: x\ry"] {
+            let e = headers(bad).unwrap_err();
+            assert_eq!(e, "RESTLOOP_HEADERS: line 1 is not a valid header");
+        }
+        // A header restloop sets itself is refused as well, with its name as written.
+        for (bad, name) in [
+            ("Authorization: Bearer secret", "Authorization"),
+            ("content-type: x", "content-type"),
+            ("Content-Length: 5", "Content-Length"),
+            ("HOST: h", "HOST"),
+            ("Transfer-Encoding: chunked", "Transfer-Encoding"),
+        ] {
+            let e = headers(bad).unwrap_err();
+            assert_eq!(
+                e,
+                format!("RESTLOOP_HEADERS: line 1 sets {name}, which restloop sets itself")
+            );
+            assert!(!e.contains("secret"));
+        }
     }
 
     #[test]
