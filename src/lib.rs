@@ -48,8 +48,9 @@ pub struct Config {
     pub headers: Vec<(String, String)>,
 }
 
-/// Why a header cannot go with a request, or None if it can: a name or value
-/// HTTP cannot carry, or a name RestLoop sets itself. Never holds the value.
+/// Why a header is refused, or None: a name or value HTTP cannot carry, or a name
+/// RestLoop or its HTTP client sets itself. Never holds the value. A header it
+/// passes can still be refused by the server.
 pub fn bad_header(name: &str, value: &str) -> Option<String> {
     if ureq::http::HeaderName::from_bytes(name.as_bytes()).is_err()
         || ureq::http::HeaderValue::from_str(value).is_err()
@@ -58,10 +59,12 @@ pub fn bad_header(name: &str, value: &str) -> Option<String> {
     }
     if [
         "authorization",
+        "proxy-authorization",
         "content-type",
         "content-length",
         "host",
         "transfer-encoding",
+        "accept-encoding",
     ]
     .iter()
     .any(|h| name.eq_ignore_ascii_case(h))
@@ -339,6 +342,14 @@ fn complete(cfg: &Config, body: &Value) -> Result<Value, Failure> {
         // The key is read for every request, so another program can replace a
         // short-lived token while a long task runs.
         let key = (cfg.key)().map_err(Failure::Key)?;
+        // A key a header cannot carry ends the run as a key failure: the error says
+        // why, never the key itself.
+        if ureq::http::HeaderValue::from_str(&format!("Bearer {}", key.trim())).is_err() {
+            return Err(Failure::Key(
+                "the key cannot go in a header: it holds a line break or another character HTTP cannot carry"
+                    .into(),
+            ));
+        }
         let limit = cfg.deadline;
         let left = limit.map_or(Duration::from_secs(600), |d| {
             Duration::from_secs(d)

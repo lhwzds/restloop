@@ -352,13 +352,21 @@ fn serve_until(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>, m
                 match name.trim().to_lowercase().as_str() {
                     "content-length" => len = value.parse().unwrap(),
                     "authorization" => auth = value,
-                    "x-test" => test = value,
+                    // A name the config may give twice: both go out with one request, joined.
+                    "x-test" => {
+                        test = if test.is_empty() {
+                            value
+                        } else {
+                            format!("{test}, {value}")
+                        }
+                    }
                     _ => {}
                 }
             }
             let mut body = vec![0; len];
             reader.read_exact(&mut body).unwrap();
-            let mut body: Value = serde_json::from_slice(&body).unwrap();
+            // A request without a JSON body (a followed redirect is a GET) is recorded too, so a test can count it.
+            let mut body: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
             body["auth"] = json!(auth);
             body["x-test"] = json!(test);
             seen.lock().unwrap().push(body);
@@ -992,7 +1000,10 @@ fn the_extra_headers_go_with_the_request() {
     let _wake = WakeOnEnd::new(&url);
     let mut cfg = test_config();
     cfg.base_url = url;
-    cfg.headers = vec![("x-test".into(), "V1-Mixed".into())];
+    cfg.headers = vec![
+        ("x-test".into(), "V1-Mixed".into()),
+        ("X-Test".into(), "two".into()),
+    ];
     let mut commands: Vec<String> = Vec::new();
     let mut messages = vec![json!({"role": "user", "content": "go"})];
     run(&cfg, &mut messages, &mut |cmd, _secs| {
@@ -1004,9 +1015,10 @@ fn the_extra_headers_go_with_the_request() {
     let sent = bodies.lock().unwrap().clone();
     assert_eq!(sent.len(), 2);
     // The value of the header goes as it was written with every request, and the
-    // key of the request is still there beside it.
+    // key of the request is still there beside it. A name given twice is sent
+    // twice, so both values reach the server.
     for body in &sent {
-        assert_eq!(body["x-test"], "V1-Mixed");
+        assert_eq!(body["x-test"], "V1-Mixed, two");
         assert_eq!(body["auth"], "Bearer k");
     }
     // Its thread is not left waiting for a request that never comes: the guard
@@ -1038,6 +1050,24 @@ fn a_bad_header_in_the_config_ends_the_run_first() {
     assert_eq!(e, "header 1 of the config is not a valid header");
     assert!(path.exists());
     assert!(!ran);
+    // A name restloop sets itself is refused the same way, still before anything
+    // else happens: the old reply stays where it was.
+    let mut cfg = test_config();
+    cfg.headers = vec![("Authorization".into(), "Bearer x".into())];
+    cfg.last_message = Some(path.to_string_lossy().into_owned());
+    let mut ran = false;
+    let mut messages = vec![json!({"role": "user", "content": "go"})];
+    let e = run(&cfg, &mut messages, &mut |_, _| {
+        ran = true;
+        "exit: 0\nfixed output".to_string()
+    })
+    .unwrap_err();
+    assert_eq!(
+        e,
+        "header 1 of the config sets Authorization, which restloop sets itself"
+    );
+    assert!(path.exists());
+    assert!(!ran);
 }
 
 /// A redirect is not followed: the extra headers must not go to another host.
@@ -1066,6 +1096,26 @@ fn a_redirect_is_not_followed() {
     assert!(
         ended.recv_timeout(Duration::from_secs(5)).is_ok(),
         "the server thread is still waiting for a request"
+    );
+}
+
+/// The reply to a redirect names its target in its Location header, so the caller can
+/// see where the extra headers would have gone.
+#[test]
+fn a_redirect_reply_names_its_target() {
+    let (url, _bodies) = serve(vec![(302, json!("http://example.invalid/x"))]);
+    let mut stream = std::net::TcpStream::connect(url.trim_start_matches("http://")).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    stream
+        .write_all(b"POST / HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}")
+        .unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+    assert!(
+        reply.contains("Location: http://example.invalid/x\r\n"),
+        "{reply}"
     );
 }
 
@@ -1150,6 +1200,25 @@ fn a_key_that_fails_ends_the_run_at_once() {
     assert_eq!(*calls.lock().unwrap(), 1);
     assert_eq!(bodies.lock().unwrap().len(), 0);
     assert_eq!(messages, before);
+}
+
+/// A key a header cannot carry ends the run as a key failure too: the error says why,
+/// never the key itself, and no command runs. No server is needed: no request is sent.
+#[test]
+fn a_key_with_a_line_break_ends_the_run() {
+    let mut cfg = test_config();
+    cfg.key = Box::new(|| Ok("line1\nline2".into()));
+    let mut ran = false;
+    let mut messages = vec![json!({"role": "user", "content": "go"})];
+    let e = run(&cfg, &mut messages, &mut |_, _| {
+        ran = true;
+        "exit: 0\nfixed output".to_string()
+    })
+    .unwrap_err();
+    assert!(e.contains("the key cannot go in a header"), "{e}");
+    assert!(!e.contains("line1"), "{e}");
+    assert!(!e.contains("line2"), "{e}");
+    assert!(!ran);
 }
 
 /// Even a key that fails with the words of a full context is the key's fault alone:

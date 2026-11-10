@@ -19,7 +19,7 @@ fn main() {
     let task = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if task == "-h" || task == "--help" {
         println!(
-            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_API_KEY_FILE (file holding the key, read for every request),\n     RESTLOOP_WIRE_API=responses (use /responses instead of /chat/completions),\n     RESTLOOP_REASONING_EFFORT (e.g. low, medium, high),\n     RESTLOOP_HEADERS (extra request headers, one \"Name: value\" per line; not Authorization, Content-Type, Content-Length, Host or Transfer-Encoding),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage of each model reply on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
+            "usage: restloop [task]   (no task: read tasks from stdin)\n\nenv: RESTLOOP_MODEL (required), RESTLOOP_API_KEY, RESTLOOP_BASE_URL (default https://api.openai.com/v1),\n     RESTLOOP_API_KEY_FILE (file holding the key, read for every request),\n     RESTLOOP_WIRE_API=responses (use /responses instead of /chat/completions),\n     RESTLOOP_REASONING_EFFORT (e.g. low, medium, high),\n     RESTLOOP_HEADERS (extra request headers, one \"Name: value\" per line; not Authorization, Proxy-Authorization, Content-Type, Content-Length, Host, Transfer-Encoding or Accept-Encoding),\n     RESTLOOP_TIMEOUT (seconds per command, default 120), RESTLOOP_MAX_STEPS (default 100),\n     RESTLOOP_LOG_USAGE=1 (token usage of each model reply on stderr),\n     RESTLOOP_DEADLINE (seconds for the whole task; the model is told the time used),\n     RESTLOOP_LAST_MESSAGE (file that receives the final reply),\n     RESTLOOP_SESSION (file to continue the conversation from; saved after every step)"
         );
         return;
     }
@@ -434,6 +434,8 @@ mod tests {
         // A header restloop sets itself is refused as well, with its name as written.
         for (bad, name) in [
             ("Authorization: Bearer secret", "Authorization"),
+            ("Accept-Encoding: br", "Accept-Encoding"),
+            ("proxy-authorization: Basic secret", "proxy-authorization"),
             ("content-type: x", "content-type"),
             ("Content-Length: 5", "Content-Length"),
             ("HOST: h", "HOST"),
