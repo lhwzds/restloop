@@ -1,14 +1,14 @@
 ---
 title: stdout 和 stderr 各输出什么
-source: #fcff355122a8
+source: #c3900f103b13
 ---
 
-stdout 只输出模型的文本：每条非空回复都会去掉首尾空白后打印，包括模型在调用工具时顺带写的简短说明。步骤之间没有分隔符，所以只需要最终答案的脚本应该用 `RESTLOOP_LAST_MESSAGE`。
+stdout 只输出模型的文本：每条非空回复都会去掉首尾空白后打印，包括模型在调用工具时顺带写的说明。步骤之间没有分隔符；只需要最终答案时，用 `RESTLOOP_LAST_MESSAGE`。
 
-其余内容都走 stderr：每条命令以暗色的 `$ <command>` 显示，接着是耗时和输出的前 10 行；还有重试和上下文溢出的提示；设置 `RESTLOOP_LOG_USAGE=1` 时，每一步拿到回复后输出一行，取自该回复的 usage（重试的请求不单独记录）：
+其余内容都走 stderr：每条命令以暗色的 `$ <command>` 显示，接着是耗时和输出的前 10 行；还有重试和上下文溢出的提示；设置 `RESTLOOP_LOG_USAGE=1` 时，每一步拿到回复后输出一行，取自该回复的 usage（重试的请求不记录）：
 
 ```
 usage: step=3 prompt_tokens=8123 completion_tokens=412 cached_tokens=7936 elapsed=41s
 ```
 
-服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()` 而不是 CLI，所以把它当作库使用的程序也会在 stderr 上看到：命令及结果、重试、溢出提示，以及保存 session 或最终回复文件失败的错误。只有 stdin 提示符 `> ` 属于 CLI。默认的命令执行器在 SIGKILL 发送失败而进程组仍在时，还会输出 `restloop: cannot stop a process group`。
+服务商没有返回的字段打印为 `null`。这些输出来自核心的 `run()`，所以作为库调用的程序也会得到它们；只有 stdin 提示符 `> ` 属于 CLI。默认的命令执行器在对仍存在的进程组发送 SIGKILL 失败时，会输出 `restloop: cannot stop a process group`。

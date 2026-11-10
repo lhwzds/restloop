@@ -10,15 +10,15 @@ title: 构建、发布与贡献
 
 核心和命令执行器的测试在 `src/tests.rs`，CLI 的测试（设置、key 文件、session 文件）在 `src/main.rs`，都用 `cargo test` 运行；`.github/workflows/ci.yml` 会在每次 push 到 `main` 和每个 pull request 时，在 macOS、Linux 和 Windows 上运行 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings` 和测试；在 Unix 上还会以 release 运行 `tests/cleanup.rs`。提 pull request 之前，请先在本地跑一遍这三条命令。另有一个在 Linux 上运行的 `docs` job，检出完整历史（`fetch-depth: 0`，这样引用的 commit 才能找到），安装 Codocia 0.2 并运行 `codocia check`，所以过时的文档或 `README_CN.md` 会让 CI 失败。
 
-<sub>来源: [Cargo.toml:1-22](../../Cargo.toml#L1-L22) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [main.rs:170-171](../../src/main.rs#L170-L171) · [ci.yml:1-37](../../.github/workflows/ci.yml#L1-L37)</sub>
+<sub>来源: [Cargo.toml:1-22](../../Cargo.toml#L1-L22) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [main.rs:208-209](../../src/main.rs#L208-L209) · [ci.yml:1-37](../../.github/workflows/ci.yml#L1-L37)</sub>
 
 ## 测试覆盖了什么
 
-`src/tests.rs` 中的单元测试锁定以下行为：`too_long()` 接受记录在案的服务商措辞，并拒绝相近但不应匹配的情况；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复；`truncate()` 保留开头和结尾。`shell()` 的测试：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
+`src/tests.rs` 中的单元测试锁定：`too_long()` 匹配记录在案的服务商措辞，而不匹配相近的说法；`drop_old_output()` 不断减半，直到返回 0；`trim_thinking()` 保留最后两条回复；`truncate()` 保留开头和结尾。`shell()`：同时有两路输出时的 exit 行、超时 kill、后台的 `sleep 30 &` 不会阻塞。
 
-有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的服务器：一次工具调用、溢出恢复、恢复 session、对空回复或没有 `choices` 的回复的重试；Responses API 下，按顺序发回的输出项、可重试和立即失败的错误；设置 deadline 时，挂起、500 和空回复都会提前以 `deadline of` 结束。只有它会设置 restloop 自己的设置，并检查命令拿不到其中任何一个。用到环境的测试共用一把锁，发请求的测试会清掉 `*_PROXY`，改过的变量都会恢复。其他核心测试用一个记录命令的工具代替 shell，检查已过 deadline 时不运行任何命令、key 失败时立即结束运行。CLI 的测试在 `src/main.rs`，覆盖 `config()`、key 文件和 session 文件；`tests/cleanup.rs`（Unix）运行二进制，检查没有进程活过一次运行。
+有一个端到端测试让 `run()` 对接 `serve()`，一个回放预设回复的服务器：一次工具调用、溢出恢复、恢复 session、对空回复或没有 `choices` 的回复的重试；按顺序发回的 Responses 输出项、可重试和致命的失败；设置 deadline 时，挂起、500 和空回复都会提前以 `deadline of` 结束。命令拿不到 restloop 的任何设置。用到环境的测试共用一把锁并恢复环境；发请求的测试会清掉 `*_PROXY`。其他核心测试检查：已过 deadline 时不运行任何命令；key 失败或无法放进请求头时结束运行；额外的请求头能送达，重复的名字送两次；配置中不合法的请求头会先让运行停下；不跟随重定向。`src/main.rs` 测试 `config()`、请求头解析、key 文件和 session 文件；`tests/cleanup.rs`（Unix）检查没有进程活过一次运行；`tests/cli.rs`（所有平台）检查不合法的 `RESTLOOP_HEADERS` 时的退出（[用法与配置](02-usage.md)）。
 
-<sub>来源: [tests.rs:167-310](../../src/tests.rs#L167-L310) · [tests.rs:30-96](../../src/tests.rs#L30-L96) · [tests.rs:443-468](../../src/tests.rs#L443-L468) · [tests.rs:832-908](../../src/tests.rs#L832-L908) · [tests.rs:930-1077](../../src/tests.rs#L930-L1077) · +6</sub>
+<sub>来源: [tests.rs:168-311](../../src/tests.rs#L168-L311) · [tests.rs:30-96](../../src/tests.rs#L30-L96) · [tests.rs:472-497](../../src/tests.rs#L472-L497) · [tests.rs:861-937](../../src/tests.rs#L861-L937) · [tests.rs:939-1078](../../src/tests.rs#L939-L1078) · +9</sub>
 
 ## 修改循环
 
@@ -29,7 +29,7 @@ title: 构建、发布与贡献
 - **保持 prompt 前缀稳定。** 任何改写早先消息的操作都会破坏服务商的 prompt 缓存；RestLoop 只在服务商报告溢出时才这样做。基于阈值的裁剪在一次 A/B 测试显示没有收益后已被移除（`f09603f4`）。
 - **核心的设置都放在 `Config`，保持很少的依赖。** `src/lib.rs` 不直接读取环境变量（其 HTTP 客户端 `ureq` 会遵循 `*_PROXY`），也不启动任何进程；这些属于 CLI（`src/main.rs`）和默认的命令执行器，即公开模块 `src/shell.rs`。小巧和可读性正是意义所在。
 
-<sub>来源: [lib.rs:1-9](../../src/lib.rs#L1-L9) · [main.rs:165-168](../../src/main.rs#L165-L168) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
+<sub>来源: [lib.rs:1-9](../../src/lib.rs#L1-L9) · [main.rs:203-206](../../src/main.rs#L203-L206) · [tests.rs:1-2](../../src/tests.rs#L1-L2) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c) · [commit 740555b1](https://github.com/lhwzds/restloop/commit/740555b1) · +1</sub>
 
 ## 如何发布一个版本
 

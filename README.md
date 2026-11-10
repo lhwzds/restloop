@@ -3,7 +3,7 @@
 English | [中文](README_CN.md)
 
 A minimal coding-agent loop: it keeps working on your task so you can rest.
-About 1260 lines of Rust, tests aside — about 520 of them the core in `src/lib.rs`, the
+About 1340 lines of Rust, tests aside — about 570 of them the core in `src/lib.rs`, the
 rest the CLI and the default command runner — packaged as a ~1.5 MB binary.
 
 The core is `src/lib.rs`: the agent loop and the model client. It makes no direct
@@ -18,7 +18,7 @@ let cfg = restloop::Config { model: "gpt-4o".into(), base_url: "https://api.open
     key: Box::new(|| Ok(std::env::var("OPENAI_API_KEY").unwrap_or_default())),
     responses: false, reasoning_effort: None, max_steps: 100, timeout: 120,
     deadline: None, start: std::time::Instant::now(), log_usage: false,
-    last_message: None, session: None };
+    last_message: None, session: None, headers: Vec::new() };
 let cwd = std::env::current_dir().unwrap_or_default().display().to_string();
 let mut messages = vec![
     json!({"role": "system", "content": restloop::system_prompt(&cfg, "sh", std::env::consts::OS, &cwd)}),
@@ -33,7 +33,7 @@ writes and edits files with shell commands, the way mini-swe-agent does.
 | | |
 |---|---|
 | Source | `src/lib.rs` (the core), `src/shell.rs` (the default command runner, a public module), `src/main.rs` (the CLI) |
-| Tests | `src/tests.rs`, `tests/cleanup.rs` (Unix); CI runs them on macOS, Linux and Windows |
+| Tests | `src/tests.rs`, `tests/cleanup.rs` (Unix), `tests/cli.rs`; CI runs them on macOS, Linux and Windows |
 | Dependencies | `ureq` (HTTPS), `serde_json`, `libc` (Unix) |
 | Binary (release) | macOS arm64 1.3 MB, Linux x86_64 1.9 MB (static), Windows x86_64 1.5 MB |
 | Storage | none by default: no database, no config file; files only when `RESTLOOP_SESSION` or `RESTLOOP_LAST_MESSAGE` is set |
@@ -62,6 +62,7 @@ export RESTLOOP_MODEL=...
 export RESTLOOP_API_KEY_FILE=key.txt                 # optional: read the key from this file for every request
 export RESTLOOP_WIRE_API=responses                   # optional: the Responses API instead of chat completions
 export RESTLOOP_REASONING_EFFORT=low                 # optional: sent as the request's reasoning effort
+export RESTLOOP_HEADERS='x-opencode-session: abc'    # optional: extra request headers, one 'Name: value' per line
 export RESTLOOP_TIMEOUT=120                          # seconds per command, optional
 export RESTLOOP_MAX_STEPS=100                        # steps per task (a reply and its commands), optional
 export RESTLOOP_LOG_USAGE=1                          # token usage of each model reply on stderr, optional
@@ -93,11 +94,16 @@ rewritten, merged); any valid chat messages under version 1 load.
 With `RESTLOOP_WIRE_API=responses` the conversation is still kept, and saved, as chat
 messages, and each request turns it into Responses input (`store: false`, streamed). An
 assistant message also keeps the model's output as it came, encrypted reasoning
-included, in `output_items`, and that is what goes back to the model; a message without
+included, in `output_items`, and that is what goes back to the model (only the id fields of message and function_call
+are removed); a message without
 `output_items` goes back as its text and tool calls (so after editing one, remove them).
 `RESTLOOP_API_KEY_FILE` suits short-lived tokens, such as those of Sign in with ChatGPT:
 another program refreshes the file, RestLoop reads it for every request. RestLoop does
 not sign in or refresh tokens itself.
+`RESTLOOP_HEADERS` adds request headers, sent with every request; redirects are not
+followed (a 3xx ends the task), so they never reach another host. A bad line, or a name
+RestLoop sets itself (`Authorization`, `Content-Type` and a few more), exits with 2 before
+the run starts; a key with a line break inside it ends the run with `the key cannot go in a header`.
 
 ## How it works
 

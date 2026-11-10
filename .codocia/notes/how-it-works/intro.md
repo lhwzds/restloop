@@ -2,8 +2,8 @@
 title: 
 order: 0
 evidence:
-  - src/lib.rs:54-80 #aab475d7b884
-  - src/lib.rs:147-151 #b5594b99cac4
+  - src/lib.rs:82-114 #4e4c5531f6ff
+  - src/lib.rs:181-185 #b5594b99cac4
 ---
 
 `run()` in `src/lib.rs` does everything: a step is one model reply plus the commands it requested.

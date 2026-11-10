@@ -2,9 +2,9 @@
 title: What it deliberately leaves out
 order: 10
 evidence:
-  - src/lib.rs:59-63 #49229e094922
-  - src/lib.rs:170-181 #41769e581b81
-  - src/main.rs:81-114 #6208a21b5c85
+  - src/lib.rs:93-97 #49229e094922
+  - src/lib.rs:204-215 #41769e581b81
+  - src/main.rs:93-128 #d7c15a4f99b7
   - commit:3b27682c
 ---
 

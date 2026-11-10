@@ -2,8 +2,8 @@
 title: What a run leaves behind
 order: 15
 evidence:
-  - src/main.rs:30-34 #ac3120f2da5d
-  - src/main.rs:56-57 #7e5890370f05
+  - src/main.rs:42-46 #ac3120f2da5d
+  - src/main.rs:68-69 #7e5890370f05
   - src/shell.rs:56-75 #f54362e09559
   - src/shell.rs:279-311 #aa9f7f608361
   - src/shell.rs:396-421 #8d8530480dcd

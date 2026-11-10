@@ -3,7 +3,7 @@
 [English](README.md) | 中文
 
 一个极简的 coding agent 循环：它替你持续推进任务，你可以去休息。
-不计测试约 1260 行 Rust，其中约 520 行是 `src/lib.rs` 中的核心，其余是 CLI 和默认的命令
+不计测试约 1340 行 Rust，其中约 570 行是 `src/lib.rs` 中的核心，其余是 CLI 和默认的命令
 执行器，打包成约 1.5 MB 的二进制。
 
 核心是 `src/lib.rs`：agent 循环和模型客户端。它不直接读取环境变量（其 HTTP 客户端 `ureq` 会遵循 `*_PROXY`），也不启动任何进程：
@@ -17,7 +17,7 @@ let cfg = restloop::Config { model: "gpt-4o".into(), base_url: "https://api.open
     key: Box::new(|| Ok(std::env::var("OPENAI_API_KEY").unwrap_or_default())),
     responses: false, reasoning_effort: None, max_steps: 100, timeout: 120,
     deadline: None, start: std::time::Instant::now(), log_usage: false,
-    last_message: None, session: None };
+    last_message: None, session: None, headers: Vec::new() };
 let cwd = std::env::current_dir().unwrap_or_default().display().to_string();
 let mut messages = vec![
     json!({"role": "system", "content": restloop::system_prompt(&cfg, "sh", std::env::consts::OS, &cwd)}),
@@ -32,7 +32,7 @@ RestLoop 是一个个人开源项目。它只给模型一个工具 `shell`，
 | | |
 |---|---|
 | 源码 | `src/lib.rs`（核心），`src/shell.rs`（默认的命令执行器，公开模块），`src/main.rs`（CLI） |
-| 测试 | `src/tests.rs`、`tests/cleanup.rs`（Unix）；CI 在 macOS、Linux 和 Windows 上运行 |
+| 测试 | `src/tests.rs`、`tests/cleanup.rs`（Unix）、`tests/cli.rs`；CI 在 macOS、Linux 和 Windows 上运行 |
 | 依赖 | `ureq`（HTTPS）、`serde_json`、`libc`（Unix） |
 | 二进制（release） | macOS arm64 1.3 MB，Linux x86_64 1.9 MB（静态），Windows x86_64 1.5 MB |
 | 存储 | 默认无：没有数据库，没有配置文件；只有设置 `RESTLOOP_SESSION` 或 `RESTLOOP_LAST_MESSAGE` 时才写文件 |
@@ -61,6 +61,7 @@ export RESTLOOP_MODEL=...
 export RESTLOOP_API_KEY_FILE=key.txt                 # 可选：每次请求都从这个文件读取 key
 export RESTLOOP_WIRE_API=responses                   # 可选：用 Responses API 代替 chat completions
 export RESTLOOP_REASONING_EFFORT=low                 # 可选：作为请求的推理强度发送
+export RESTLOOP_HEADERS='x-opencode-session: abc'    # 可选：额外的请求头，每行一个 'Name: value'
 export RESTLOOP_TIMEOUT=120                          # 每条命令的秒数，可选
 export RESTLOOP_MAX_STEPS=100                        # 每个任务的步数（一次回复及其命令），可选
 export RESTLOOP_LOG_USAGE=1                          # 在 stderr 上输出每条模型回复的 token 用量，可选
@@ -93,6 +94,9 @@ assistant 的文本输出到 stdout；命令及其输出写入 stderr。
 没有 `output_items` 的消息则以其文本和工具调用发回（所以编辑某条消息后，要删掉它们）。
 `RESTLOOP_API_KEY_FILE` 适合短期 token，例如 Sign in with ChatGPT 的 token：
 由另一个程序刷新该文件，RestLoop 每次请求都会读取它。RestLoop 自己不负责登录，也不刷新 token。
+`RESTLOOP_HEADERS` 添加随每个请求发送的请求头；RestLoop 不跟随重定向（3xx 会结束任务），所以它们不会发到另一台主机。
+某一行不合法，或名字是 RestLoop 自己设置的（`Authorization`、`Content-Type` 等），会在运行开始前以 2 退出；
+key 内部含换行时，运行以 `the key cannot go in a header` 结束。
 
 ## 工作原理
 

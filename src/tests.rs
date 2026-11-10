@@ -334,8 +334,13 @@ fn serve_until(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>, m
             let Some(mut stream) = accept(&listener) else {
                 break; // no request came: the thread ends instead of waiting.
             };
+            // The request is not waited for forever: a test that has panicked must
+            // not leave this thread holding a half-written request.
+            stream
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let (mut len, mut auth, mut test) = (0, String::new(), String::new());
+            let (mut len, mut auth, mut test, mut test_lines) = (0, String::new(), None, 0);
             loop {
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
@@ -354,11 +359,11 @@ fn serve_until(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>, m
                     "authorization" => auth = value,
                     // A name the config may give twice: both go out with one request, joined.
                     "x-test" => {
-                        test = if test.is_empty() {
-                            value
-                        } else {
-                            format!("{test}, {value}")
-                        }
+                        test_lines += 1;
+                        test = match test {
+                            None => Some(value),
+                            Some(first) => Some(format!("{first}, {value}")),
+                        };
                     }
                     _ => {}
                 }
@@ -368,7 +373,8 @@ fn serve_until(replies: Vec<(u16, Value)>) -> (String, Arc<Mutex<Vec<Value>>>, m
             // A request without a JSON body (a followed redirect is a GET) is recorded too, so a test can count it.
             let mut body: Value = serde_json::from_slice(&body).unwrap_or(json!({}));
             body["auth"] = json!(auth);
-            body["x-test"] = json!(test);
+            body["x-test"] = json!(test.unwrap_or_default());
+            body["x-test-lines"] = json!(test_lines);
             seen.lock().unwrap().push(body);
             // Status 0 stalls before headers; status 1 stalls after 200 headers.
             if status == 0 || status == 1 {
@@ -1019,6 +1025,7 @@ fn the_extra_headers_go_with_the_request() {
     // twice, so both values reach the server.
     for body in &sent {
         assert_eq!(body["x-test"], "V1-Mixed, two");
+        assert_eq!(body["x-test-lines"], 2);
         assert_eq!(body["auth"], "Bearer k");
     }
     // Its thread is not left waiting for a request that never comes: the guard
@@ -1099,8 +1106,7 @@ fn a_redirect_is_not_followed() {
     );
 }
 
-/// The reply to a redirect names its target in its Location header, so the caller can
-/// see where the extra headers would have gone.
+/// The test server's redirect reply carries its target in a Location header, so the redirect test above really offers RestLoop a place to go.
 #[test]
 fn a_redirect_reply_names_its_target() {
     let (url, _bodies) = serve(vec![(302, json!("http://example.invalid/x"))]);
@@ -1206,10 +1212,25 @@ fn a_key_that_fails_ends_the_run_at_once() {
 /// never the key itself, and no command runs. No server is needed: no request is sent.
 #[test]
 fn a_key_with_a_line_break_ends_the_run() {
+    // The core builds a ureq agent, which reads the proxy settings of the
+    // environment: this test holds the shared env lock for its whole body, and
+    // the proxy settings of the host are removed, so the requests of the run
+    // reach the local server and not a proxy.
+    let _env = env_lock();
+    let _proxy = remove_proxy_vars();
     let mut cfg = test_config();
-    cfg.key = Box::new(|| Ok("line1\nline2".into()));
+    // The run is bounded anyway: without the key check the test would fail after
+    // the whole retry ladder, not within seconds.
+    cfg.deadline = Some(5);
+    let calls = Arc::new(Mutex::new(0));
+    let seen = calls.clone();
+    cfg.key = Box::new(move || {
+        *seen.lock().unwrap() += 1;
+        Ok("line1\nline2".into())
+    });
     let mut ran = false;
     let mut messages = vec![json!({"role": "user", "content": "go"})];
+    let before = messages.clone();
     let e = run(&cfg, &mut messages, &mut |_, _| {
         ran = true;
         "exit: 0\nfixed output".to_string()
@@ -1219,6 +1240,8 @@ fn a_key_with_a_line_break_ends_the_run() {
     assert!(!e.contains("line1"), "{e}");
     assert!(!e.contains("line2"), "{e}");
     assert!(!ran);
+    assert_eq!(*calls.lock().unwrap(), 1);
+    assert_eq!(messages, before);
 }
 
 /// Even a key that fails with the words of a full context is the key's fault alone:

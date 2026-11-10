@@ -19,7 +19,7 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 - **没有配置文件，也没有数据库。** 所有选项都是环境变量，由 CLI 在启动时一次读入核心的 `Config`（key 则在每次请求前读取）；RestLoop 自己只会写可选的 session 文件和最终回复文件（见 [用法与配置](02-usage.md)）。
 - **没有沙箱，也没有确认。** 命令以你的权限在当前目录执行。隔离由调用方负责：用容器或一次性的 checkout。
 
-<sub>来源: [lib.rs:59-63](../../src/lib.rs#L59-L63) · [lib.rs:170-181](../../src/lib.rs#L170-L181) · [main.rs:81-114](../../src/main.rs#L81-L114) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
+<sub>来源: [lib.rs:93-97](../../src/lib.rs#L93-L97) · [lib.rs:204-215](../../src/lib.rs#L204-L215) · [main.rs:93-128](../../src/main.rs#L93-L128) · [commit 3b27682c](https://github.com/lhwzds/restloop/commit/3b27682c)</sub>
 
 ## 一次运行会留下什么
 
@@ -27,7 +27,7 @@ RestLoop 是一个只剩下循环本身的 coding agent：它把对话和唯一�
 
 这些属于 CLI 的设置：把 `shell::shell()` 当库调用的程序要自己调用 `shell::install()` 和 `shell::stop_all()`。
 
-<sub>来源: [main.rs:30-34](../../src/main.rs#L30-L34) · [main.rs:56-57](../../src/main.rs#L56-L57) · [shell.rs:56-75](../../src/shell.rs#L56-L75) · [shell.rs:279-311](../../src/shell.rs#L279-L311) · [shell.rs:396-421](../../src/shell.rs#L396-L421) · +1</sub>
+<sub>来源: [main.rs:42-46](../../src/main.rs#L42-L46) · [main.rs:68-69](../../src/main.rs#L68-L69) · [shell.rs:56-75](../../src/shell.rs#L56-L75) · [shell.rs:279-311](../../src/shell.rs#L279-L311) · [shell.rs:396-421](../../src/shell.rs#L396-L421) · +1</sub>
 
 ## 这种清理的限制
 
@@ -53,4 +53,4 @@ restloop "make the failing test pass"
 
 用其他服务商时，把 `RESTLOOP_BASE_URL` 设为 `/chat/completions` 之前的那部分。退出码和所有选项见 [用法与配置](02-usage.md)。
 
-<sub>来源: [README.md:40-47](../../README.md#L40-L47) · [README.md:52-60](../../README.md#L52-L60) · [main.rs:88-89](../../src/main.rs#L88-L89)</sub>
+<sub>来源: [README.md:40-47](../../README.md#L40-L47) · [README.md:52-60](../../README.md#L52-L60) · [main.rs:100-101](../../src/main.rs#L100-L101)</sub>
